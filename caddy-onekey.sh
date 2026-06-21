@@ -123,7 +123,6 @@ $domain {
             versions h2c 2
         }
         header_up Host {host}
-        header_up X-Forwarded-Proto {scheme}
     }
 
     root * $site_root
@@ -133,7 +132,12 @@ $domain {
 }
 EOF
 
-    caddy validate --config "$tmp" --adapter caddyfile >/dev/null
+    local validate_output
+    if ! validate_output="$(caddy validate --config "$tmp" --adapter caddyfile 2>&1)"; then
+        printf '%s\n' "$validate_output" >&2
+        rm -f "$tmp"
+        die "Generated Caddyfile validation failed"
+    fi
     if [ -f "$CADDYFILE" ]; then
         cp -a "$CADDYFILE" "$CADDYFILE.$(date '+%Y%m%d-%H%M%S').bak"
     fi

@@ -61,9 +61,9 @@ require_install_dir() {
 download_archive() {
     local output="$1"
     if have_cmd curl; then
-        curl -fL "$ARCHIVE_URL" -o "$output"
+        curl -fsSL "$ARCHIVE_URL" -o "$output"
     elif have_cmd wget; then
-        wget -O "$output" "$ARCHIVE_URL"
+        wget -q -O "$output" "$ARCHIVE_URL"
     else
         die "curl or wget is required"
     fi
