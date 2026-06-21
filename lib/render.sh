@@ -327,6 +327,13 @@ test_xray_config_file() {
 apply_xray_config() {
     init_state_files
     mkdir -p "$XRAY_CONFIG_DIR" /var/log/xray
+    if id "$XRAY_RUN_USER" >/dev/null 2>&1; then
+        local xray_group
+        xray_group="$(id -gn "$XRAY_RUN_USER")"
+        touch /var/log/xray/access.log /var/log/xray/error.log
+        chown "$XRAY_RUN_USER:$xray_group" /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
+        chmod 600 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
+    fi
     local rendered="$RENDERED_DIR/config.$(timestamp).json"
     render_xray_config "$rendered"
     test_xray_config_file "$rendered"

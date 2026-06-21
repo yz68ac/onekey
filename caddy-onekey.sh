@@ -21,6 +21,10 @@ ok() {
     printf '[OK] %s\n' "$*"
 }
 
+warn() {
+    printf '[WARN] %s\n' "$*" >&2
+}
+
 have_cmd() {
     command -v "$1" >/dev/null 2>&1
 }
@@ -94,6 +98,9 @@ install_caddy() {
 
     apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y caddy
+    if ! id caddy >/dev/null 2>&1; then
+        warn "Caddy package did not expose a caddy system user; keeping package defaults"
+    fi
 }
 
 write_caddyfile() {

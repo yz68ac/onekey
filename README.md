@@ -20,6 +20,7 @@
 
 - Xray 生效配置：`/usr/local/etc/xray/config.json`
 - Xray 二进制：`/usr/local/bin/xray`
+- Xray 运行用户：`xray`
 - Caddy 生效配置：`/etc/caddy/Caddyfile`
 - 管理状态目录：`/etc/onekey-xray`
 - 用户状态：`/etc/onekey-xray/users.json`
@@ -28,6 +29,11 @@
 - 渲染输出：`/etc/onekey-xray/rendered`
 
 `/etc/onekey-xray` 只给脚本保存状态，不替代 Xray 官方配置目录。
+
+## 服务用户
+
+- Xray：脚本会创建 `xray` 系统用户，并调用官方安装脚本的 `--install-user xray`，让 systemd 服务以专属用户运行。
+- Caddy：脚本使用 Caddy 官方 apt 包安装，服务用户和 systemd unit 交给官方包维护，通常为 `caddy` 用户。
 
 ## 使用
 

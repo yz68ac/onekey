@@ -2,6 +2,7 @@
 
 XRAY_BIN="${XRAY_BIN:-/usr/local/bin/xray}"
 XRAY_SERVICE="${XRAY_SERVICE:-xray}"
+XRAY_RUN_USER="${XRAY_RUN_USER:-xray}"
 XRAY_CONFIG_DIR="${XRAY_CONFIG_DIR:-/usr/local/etc/xray}"
 XRAY_CONFIG="${XRAY_CONFIG:-$XRAY_CONFIG_DIR/config.json}"
 
