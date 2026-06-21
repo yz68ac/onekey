@@ -352,6 +352,9 @@ apply_xray_config_and_restart() {
 
 switch_xhttp() {
     local domain="$1" acme_email="$2" path="$3" port="$4"
+    case "$domain" in
+        *@*) die "--domain must be a DNS name, not an email. Use --email for the ACME email." ;;
+    esac
     validate_domain "$domain" || die "Invalid domain: $domain"
     validate_email "$acme_email" || die "Invalid email: $acme_email"
     validate_port "$port" || die "Invalid port: $port"

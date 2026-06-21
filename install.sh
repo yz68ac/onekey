@@ -94,6 +94,7 @@ install_project() {
     cp -a "$src" "$staged"
     chmod +x "$staged/xrayctl.sh" "$staged/install.sh" "$staged/caddy-onekey.sh"
 
+    cd /
     rm -rf "$INSTALL_DIR"
     mv "$staged" "$INSTALL_DIR"
     ok "Installed project to $INSTALL_DIR"
