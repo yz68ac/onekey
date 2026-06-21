@@ -25,8 +25,13 @@ ensure_xray_user() {
 
 install_xray() {
     ensure_xray_user
-    info "Installing or updating Xray with the official XTLS installer"
-    bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --install-user "$XRAY_RUN_USER"
+    if [ -x "$XRAY_BIN" ]; then
+        info "Reinstalling Xray to refresh the official systemd service user"
+        bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --reinstall --install-user "$XRAY_RUN_USER"
+    else
+        info "Installing Xray with the official XTLS installer"
+        bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --install-user "$XRAY_RUN_USER"
+    fi
 }
 
 install_all() {

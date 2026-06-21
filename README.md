@@ -33,6 +33,7 @@
 ## 服务用户
 
 - Xray：脚本会创建 `xray` 系统用户，并调用官方安装脚本的 `--install-user xray`，让 systemd 服务以专属用户运行。
+- 已安装 Xray 时，脚本会用 `--reinstall --install-user xray` 强制刷新官方 systemd service；否则官方安装器在版本未变化时可能直接退出，不会改运行用户。
 - Caddy：脚本使用 Caddy 官方 apt 包安装，服务用户和 systemd unit 交给官方包维护，通常为 `caddy` 用户。
 
 ## 使用
