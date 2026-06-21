@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "mode": "xhttp",
+  "domain": "example.com",
+  "address": "example.com",
+  "acme_email": "admin@example.com",
+  "api": {
+    "host": "127.0.0.1",
+    "port": 32768
+  },
+  "xhttp": {
+    "listen": "127.0.0.1",
+    "port": 10000,
+    "path": "/change-me"
+  },
+  "reality": {
+    "listen_port": 443,
+    "target": "example.com:443",
+    "server_name": "example.com",
+    "server_names": [
+      "example.com"
+    ],
+    "address": "example.com",
+    "private_key": "",
+    "public_key": "",
+    "short_ids": [],
+    "spider_x": "/"
+  },
+  "caddy": {
+    "site_root": "/usr/share/caddy"
+  }
+}

@@ -1,0 +1,21 @@
+{
+    email admin@example.com
+}
+
+example.com {
+    encode zstd gzip
+
+    @xray_xhttp path /change-me /change-me/*
+    reverse_proxy @xray_xhttp 127.0.0.1:10000 {
+        transport http {
+            versions h2c 2
+        }
+        header_up Host {host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    root * /usr/share/caddy
+    file_server
+
+    respond /health "ok" 200
+}

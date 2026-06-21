@@ -1,0 +1,25 @@
+# Runtime state and secrets
+.env
+.env.*
+state.json
+users.json
+*.pem
+*.key
+*.bak
+*.tmp
+
+# Generated runtime output copied back from servers
+runtime/
+rendered/
+backups/
+config.generated.json
+Caddyfile.generated
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Shell tooling caches
+.shellcheck/
