@@ -31,6 +31,24 @@
 
 ## 使用
 
+一行安装并进入菜单：
+
+```bash
+wget -qO- https://raw.githubusercontent.com/yz68ac/onekey/main/install.sh | sudo bash
+```
+
+一行安装并直接执行命令：
+
+```bash
+wget -qO- https://raw.githubusercontent.com/yz68ac/onekey/main/install.sh | sudo bash -s -- switch xhttp --domain example.com --email admin@example.com --path /secret
+```
+
+默认会把项目安装到 `/usr/local/onekey-xray-caddy`，之后可直接运行：
+
+```bash
+sudo /usr/local/onekey-xray-caddy/xrayctl.sh
+```
+
 克隆后进入目录：
 
 ```bash
