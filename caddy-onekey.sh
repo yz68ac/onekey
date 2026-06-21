@@ -133,7 +133,7 @@ $domain {
 }
 EOF
 
-    caddy validate --config "$tmp" >/dev/null
+    caddy validate --config "$tmp" --adapter caddyfile >/dev/null
     if [ -f "$CADDYFILE" ]; then
         cp -a "$CADDYFILE" "$CADDYFILE.$(date '+%Y%m%d-%H%M%S').bak"
     fi
@@ -150,7 +150,7 @@ reload_caddy() {
             systemctl start "$CADDY_SERVICE"
         fi
     else
-        caddy reload --config "$CADDYFILE"
+        caddy reload --config "$CADDYFILE" --adapter caddyfile
     fi
 }
 
