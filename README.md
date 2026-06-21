@@ -56,6 +56,8 @@ wget -qO- https://raw.githubusercontent.com/yz68ac/onekey/main/install.sh | sudo
 sudo /usr/local/onekey-xray-caddy/xrayctl.sh
 ```
 
+重复运行安装器会在原目录内覆盖更新，不会删除并重建 `/usr/local/onekey-xray-caddy`，所以可以安全地在安装目录中执行一键命令。
+
 克隆后进入目录：
 
 ```bash
