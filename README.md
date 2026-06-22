@@ -1,11 +1,6 @@
 # OneKey Xray + Caddy
 
-这是一个偏个人使用的 Xray 管理脚本骨架，吸收了 `zxcvos/Xray-script` 里比较实用的部分：交互式菜单、JSON 状态、`jq` 渲染配置、分享链接生成、Stats API 流量统计。它没有沿用上游的大型 Nginx/SNI/Cloudreve/WARP 体系，而是收窄成 Xray + Caddy。
-
-目标系统：Debian/Ubuntu + systemd。
-
 ## 功能
-
 - `xrayctl.sh` 统一管理入口，无参数进入交互菜单。
 - 支持 XHTTP + Caddy：Caddy 管理 80/443 和证书，Xray 监听本地 XHTTP 端口。
 - 支持 REALITY + Vision：Xray 直接监听 443，Caddy 会被停止以避免端口冲突。
@@ -57,7 +52,6 @@ sudo /usr/local/onekey-xray-caddy/xrayctl.sh
 ```
 
 重复运行安装器会在原目录内覆盖更新，不会删除并重建 `/usr/local/onekey-xray-caddy`，所以可以安全地在安装目录中执行一键命令。
-
 克隆后进入目录：
 
 ```bash
@@ -65,19 +59,16 @@ cd onekey-xray-caddy
 chmod +x xrayctl.sh install.sh caddy-onekey.sh
 sudo ./xrayctl.sh
 ```
-
 安装或更新 Xray：
 
 ```bash
 sudo ./xrayctl.sh install
 ```
-
 添加用户：
 
 ```bash
 sudo ./xrayctl.sh user add alice@example.com
 ```
-
 切换到 XHTTP + Caddy：
 
 ```bash
@@ -89,20 +80,17 @@ sudo ./xrayctl.sh switch xhttp --domain example.com --email admin@example.com --
 ```bash
 sudo ./xrayctl.sh switch reality --server-name example.com --target example.com:443 --address your.server.com
 ```
-
 切换到 XHTTP + REALITY：
 
 ```bash
 sudo ./xrayctl.sh switch xhttp-reality --server-name example.com --target example.com:443 --address your.server.com --path /secret
 ```
-
 查看流量：
 
 ```bash
 sudo ./xrayctl.sh traffic all
 sudo ./xrayctl.sh traffic alice@example.com
 ```
-
 生成分享链接：
 
 ```bash
@@ -125,33 +113,6 @@ sudo ./xrayctl.sh test
 ```bash
 sudo ./caddy-onekey.sh --domain example.com --email admin@example.com --xhttp-port 10000 --path /secret
 ```
-
-## 和上游 Xray-script 的取舍
-
-保留的思路：
-
-- 菜单式交互。
-- `config/state + jq` 生成最终 Xray JSON。
-- API inbound + `StatsService` 做流量统计。
-- 根据当前配置生成分享链接。
-- REALITY 密钥、shortId、path 默认自动生成。
-
-刻意删掉的部分：
-
-- Nginx 源码编译和 SNI 多站点体系。
-- Cloudreve、Cloudflare WARP、Docker 管理。
-- 大型 i18n 菜单系统。
-- 复杂路由规则编辑。
-
-这样做的结果是脚本更小，后续你自己维护更轻松。
-
-## 注意
-
-- REALITY 的 `target/serverName` 需要自己选择合适目标，脚本不会内置固定伪装域名。
-- XHTTP + Caddy 模式要求域名解析到服务器，并开放 80/443。
-- REALITY + Vision 和 XHTTP + REALITY 模式会直接占用 443，所以脚本会停止 Caddy。
-- 不要把 VPS 上的 `/etc/onekey-xray/state.json`、`users.json`、REALITY 私钥提交到 GitHub。
-
 ## 参考
 
 - Xray 官方安装脚本：<https://github.com/XTLS/Xray-install>
