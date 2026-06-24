@@ -1,0 +1,24 @@
+{
+    email admin@example.com
+}
+
+http://www.example.com {
+    bind 0.0.0.0
+    encode zstd gzip
+
+    root * /usr/share/caddy
+    file_server
+
+    respond /health "ok" 200
+}
+
+https://www.example.com:8443 {
+    bind 127.0.0.1
+    tls admin@example.com
+    encode zstd gzip
+
+    root * /usr/share/caddy
+    file_server
+
+    respond /health "ok" 200
+}

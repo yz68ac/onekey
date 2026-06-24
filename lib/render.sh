@@ -157,7 +157,7 @@ render_reality_config() {
                     sniffing: null
                 },
                 {
-                    tag: "VLESS-VISION-REALITY",
+                    tag: (if ($state[0].mode // "") == "reality-self" then "VLESS-REALITY-SELF" else "VLESS-VISION-REALITY" end),
                     listen: "0.0.0.0",
                     port: ($state[0].reality.listen_port // 443),
                     protocol: "vless",
@@ -304,7 +304,7 @@ render_xray_config() {
         xhttp-reality)
             render_xhttp_reality_config "$output"
             ;;
-        reality|reality-vision|vision|vison)
+        reality|reality-vision|vision|vison|reality-self)
             render_reality_config "$output"
             ;;
         *)
@@ -431,4 +431,38 @@ switch_xhttp_reality() {
     state_set_xhttp_reality "$server_name" "$target" "$address" "$path" "$port" "$private_key" "$public_key" "$short_id"
     apply_xray_config_and_restart
     ok "Switched to XHTTP + REALITY"
+}
+
+switch_reality_self() {
+    local domain="$1" acme_email="$2" address="$3" port="$4" fallback_port="$5"
+    case "$domain" in
+        *@*) die "--domain must be a DNS name, not an email. Use --email for the ACME email." ;;
+    esac
+    validate_domain "$domain" || die "Invalid domain: $domain"
+    validate_email "$acme_email" || die "Invalid email: $acme_email"
+    validate_port "$port" || die "Invalid Xray listen port: $port"
+    validate_port "$fallback_port" || die "Invalid local Caddy fallback port: $fallback_port"
+    [ "$port" != "$fallback_port" ] || die "Xray listen port and local Caddy fallback port must be different"
+    [ -n "$address" ] || die "Client address cannot be empty"
+
+    init_state_files
+    local private_key public_key short_id keys
+    private_key="$(state_get '.reality.private_key // ""')"
+    public_key="$(state_get '.reality.public_key // ""')"
+    short_id="$(state_get '(.reality.short_ids // []) | .[0] // ""')"
+
+    if [ -z "$private_key" ] || [ -z "$public_key" ]; then
+        keys="$(generate_x25519_pair)"
+        private_key="$(printf '%s\n' "$keys" | sed -n '1p')"
+        public_key="$(printf '%s\n' "$keys" | sed -n '2p')"
+    fi
+    if [ -z "$short_id" ]; then
+        short_id="$(generate_short_id)"
+    fi
+    validate_short_id "$short_id" || die "Invalid generated shortId"
+
+    state_set_reality_self "$domain" "$acme_email" "$address" "$port" "$fallback_port" "$private_key" "$public_key" "$short_id"
+    caddy_apply_from_state
+    apply_xray_config_and_restart
+    ok "Switched to REALITY self-steal + local Caddy"
 }

@@ -36,8 +36,8 @@ generate_x25519_pair() {
     need_cmd "$XRAY_BIN"
     local output private_key public_key
     output="$("$XRAY_BIN" x25519)"
-    private_key="$(printf '%s\n' "$output" | awk -F': ' '/Private key/ {print $2; exit}')"
-    public_key="$(printf '%s\n' "$output" | awk -F': ' '/Public key/ {print $2; exit}')"
+    private_key="$(printf '%s\n' "$output" | awk -F':[[:space:]]*' 'tolower($1) ~ /^private[[:space:]]*key$/ || tolower($1) == "privatekey" {print $2; exit}')"
+    public_key="$(printf '%s\n' "$output" | awk -F':[[:space:]]*' 'tolower($1) ~ /public[[:space:]]*key/ || tolower($1) ~ /publickey/ {print $2; exit}')"
     [ -n "$private_key" ] && [ -n "$public_key" ] || die "Failed to parse xray x25519 output"
     printf '%s\n%s\n' "$private_key" "$public_key"
 }

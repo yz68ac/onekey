@@ -26,6 +26,10 @@
     "short_ids": [],
     "spider_x": "/"
   },
+  "reality_self": {
+    "listen": "127.0.0.1",
+    "port": 8443
+  },
   "caddy": {
     "site_root": "/usr/share/caddy"
   }

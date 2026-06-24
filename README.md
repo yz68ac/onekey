@@ -4,6 +4,7 @@
 - `xrayctl.sh` 统一管理入口，无参数进入交互菜单。
 - 支持 XHTTP + Caddy：Caddy 管理 80/443 和证书，Xray 监听本地 XHTTP 端口。
 - 支持 REALITY + Vision：Xray 直接监听 443，Caddy 会被停止以避免端口冲突。
+- 支持 REALITY self-steal + local Caddy：Xray 监听公网 443，REALITY 回落到本机 Caddy `127.0.0.1:8443`。
 - 支持 XHTTP + REALITY：Xray 直接监听 443，使用 XHTTP 传输和 REALITY 安全层。
 - 支持快速添加、删除、列出 UUID 用户。
 - 支持按用户 email 查看 Xray Stats API 流量。
@@ -80,6 +81,24 @@ sudo ./xrayctl.sh switch xhttp --domain example.com --email admin@example.com --
 ```bash
 sudo ./xrayctl.sh switch reality --server-name example.com --target example.com:443 --address your.server.com
 ```
+
+切换到 REALITY self-steal + local Caddy：
+
+```bash
+sudo ./xrayctl.sh switch reality-self --domain www.example.com --email admin@example.com --address your.server.com --fallback-port 8443
+```
+
+这个模式会生成类似下面的关系：
+
+```text
+Client -> Xray REALITY :443
+Xray REALITY target -> 127.0.0.1:8443
+Caddy HTTPS -> 127.0.0.1:8443, cert for www.example.com
+Caddy HTTP -> public :80, normal webpage and ACME HTTP-01
+```
+
+这个模式要求域名解析到服务器；Xray 占用公网 443，Caddy 只在 `127.0.0.1:8443` 提供 HTTPS 回落，请保持公网 80 可达，方便 Caddy 用 HTTP-01 申请和续期证书。
+
 切换到 XHTTP + REALITY：
 
 ```bash
@@ -113,6 +132,13 @@ sudo ./xrayctl.sh test
 ```bash
 sudo ./caddy-onekey.sh --domain example.com --email admin@example.com --xhttp-port 10000 --path /secret
 ```
+
+单独生成 REALITY self-steal 的本机 Caddy 回落配置：
+
+```bash
+sudo ./caddy-onekey.sh --mode reality-self --domain www.example.com --email admin@example.com --fallback-port 8443
+```
+
 ## 参考
 
 - Xray 官方安装脚本：<https://github.com/XTLS/Xray-install>
