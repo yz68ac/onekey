@@ -35,6 +35,7 @@ Usage:
   ./xrayctl.sh install
   ./xrayctl.sh switch xhttp --domain example.com --email admin@example.com [--path /secret] [--port 10000]
   ./xrayctl.sh switch xhttp-reality --server-name example.com --target example.com:443 [--address your.server.com] [--path /secret] [--port 443]
+  ./xrayctl.sh switch xhttp-reality-self --domain example.com --email admin@example.com [--address your.server.com] [--path /secret] [--port 443] [--fallback-port 8443]
   ./xrayctl.sh switch reality-self --domain example.com --email admin@example.com [--address your.server.com] [--port 443] [--fallback-port 8443]
   ./xrayctl.sh switch reality --server-name example.com --target example.com:443 [--address your.server.com] [--port 443]
   ./xrayctl.sh switch vision --server-name example.com --target example.com:443 [--address your.server.com]
@@ -218,6 +219,53 @@ parse_switch_reality_self() {
     switch_reality_self "$domain" "$acme_email" "$address" "$port" "$fallback_port"
 }
 
+parse_switch_xhttp_reality_self() {
+    local domain="" acme_email="" address="" path="" port="443" fallback_port="8443"
+
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --domain|--server-name|--sni)
+                domain="${2:-}"
+                shift 2
+                ;;
+            --email|--acme-email)
+                acme_email="${2:-}"
+                shift 2
+                ;;
+            --address)
+                address="${2:-}"
+                shift 2
+                ;;
+            --path)
+                path="${2:-}"
+                shift 2
+                ;;
+            --port)
+                port="${2:-}"
+                shift 2
+                ;;
+            --fallback-port|--local-port|--https-port)
+                fallback_port="${2:-}"
+                shift 2
+                ;;
+            -h|--help)
+                usage
+                exit 0
+                ;;
+            *)
+                die "Unknown xhttp-reality-self option: $1"
+                ;;
+        esac
+    done
+
+    [ -n "$domain" ] || die "--domain is required"
+    [ -n "$acme_email" ] || die "--email is required"
+    address="${address:-$domain}"
+    path="${path:-$(generate_path)}"
+
+    switch_xhttp_reality_self "$domain" "$acme_email" "$address" "$path" "$port" "$fallback_port"
+}
+
 main() {
     local cmd="${1:-menu}"
     if [ "$#" -gt 0 ]; then
@@ -238,7 +286,7 @@ main() {
         switch)
             require_root
             local mode="${1:-}"
-            [ -n "$mode" ] || die "Missing switch mode: xhttp, xhttp-reality, reality-self, reality, or vision"
+            [ -n "$mode" ] || die "Missing switch mode: xhttp, xhttp-reality, xhttp-reality-self, reality-self, reality, or vision"
             shift || true
             case "$mode" in
                 xhttp)
@@ -246,6 +294,9 @@ main() {
                     ;;
                 xhttp-reality|xreality|xhttp_reality)
                     parse_switch_xhttp_reality "$@"
+                    ;;
+                xhttp-reality-self|xreality-self|xhttp_reality_self|xhttp-self|xhttp-reality-local|xhttp-reality-local-caddy)
+                    parse_switch_xhttp_reality_self "$@"
                     ;;
                 reality-self|self|self-reality|reality_self|reality-local|reality-local-caddy)
                     parse_switch_reality_self "$@"

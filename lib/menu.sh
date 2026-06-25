@@ -47,6 +47,18 @@ menu_switch_reality_self() {
     switch_reality_self "$domain" "$acme_email" "$address" "$port" "$fallback_port"
 }
 
+menu_switch_xhttp_reality_self() {
+    require_root
+    local domain acme_email address path port fallback_port
+    domain="$(prompt "XHTTP REALITY self-steal domain/SNI")"
+    acme_email="$(prompt "ACME email for local Caddy TLS")"
+    address="$(prompt "Client address in share link" "$domain")"
+    path="$(prompt "XHTTP path" "$(generate_path)")"
+    port="$(prompt "Xray public listen port" "443")"
+    fallback_port="$(prompt "Local Caddy HTTPS fallback port" "8443")"
+    switch_xhttp_reality_self "$domain" "$acme_email" "$address" "$path" "$port" "$fallback_port"
+}
+
 menu_user_add() {
     require_root
     local email uuid
@@ -88,18 +100,19 @@ interactive_menu() {
  3) Switch to REALITY + Vision
  4) Switch to REALITY self-steal + local Caddy
  5) Switch to XHTTP + REALITY
- 6) Add UUID user
- 7) Delete user
- 8) List users
- 9) Show traffic
-10) Generate share link
-11) Start Xray
-12) Stop Xray
-13) Restart Xray
-14) Xray status
-15) Xray logs
-16) Test generated config
-17) Re-apply Caddy config
+ 6) Switch to XHTTP + REALITY self-steal + local Caddy
+ 7) Add UUID user
+ 8) Delete user
+ 9) List users
+10) Show traffic
+11) Generate share link
+12) Start Xray
+13) Stop Xray
+14) Restart Xray
+15) Xray status
+16) Xray logs
+17) Test generated config
+18) Re-apply Caddy config
  0) Exit
 EOF
         printf '\n'
@@ -111,18 +124,19 @@ EOF
             3) menu_switch_reality ;;
             4) menu_switch_reality_self ;;
             5) menu_switch_xhttp_reality ;;
-            6) menu_user_add ;;
-            7) menu_user_del ;;
-            8) user_list ;;
-            9) menu_traffic ;;
-            10) menu_link ;;
-            11) service_command start ;;
-            12) service_command stop ;;
-            13) service_command restart ;;
-            14) service_command status ;;
-            15) service_command logs ;;
-            16) service_command test ;;
-            17) require_root; caddy_apply_from_state ;;
+            6) menu_switch_xhttp_reality_self ;;
+            7) menu_user_add ;;
+            8) menu_user_del ;;
+            9) user_list ;;
+            10) menu_traffic ;;
+            11) menu_link ;;
+            12) service_command start ;;
+            13) service_command stop ;;
+            14) service_command restart ;;
+            15) service_command status ;;
+            16) service_command logs ;;
+            17) service_command test ;;
+            18) require_root; caddy_apply_from_state ;;
             0) exit 0 ;;
             *) warn "Unknown choice: $choice" ;;
         esac

@@ -24,7 +24,7 @@ link_show() {
             printf 'vless://%s@%s:443?encryption=none&type=xhttp&security=tls&sni=%s&host=%s&path=%s&mode=auto&alpn=h2&fp=chrome#%s\n' \
                 "$uuid" "$domain" "$domain" "$domain" "$encoded_path" "$encoded_label"
             ;;
-        xhttp-reality)
+        xhttp-reality|xhttp-reality-self)
             local address port server_name public_key short_id path encoded_path encoded_spider
             address="$(state_get '.reality.address // .address // ""')"
             port="$(state_get '.reality.listen_port // 443')"

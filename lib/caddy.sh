@@ -6,7 +6,7 @@ caddy_apply_from_state() {
     mode="$(state_get '.mode // "xhttp"')"
     case "$mode" in
         xhttp) ;;
-        reality-self)
+        reality-self|xhttp-reality-self)
             caddy_apply_reality_self_from_state
             return 0
             ;;
@@ -34,7 +34,10 @@ caddy_apply_reality_self_from_state() {
     init_state_files
     local mode domain acme_email listen port site_root
     mode="$(state_get '.mode // "xhttp"')"
-    [ "$mode" = "reality-self" ] || die "Current mode is not reality-self"
+    case "$mode" in
+        reality-self|xhttp-reality-self) ;;
+        *) die "Current mode is not a self-steal mode" ;;
+    esac
 
     domain="$(state_get '.domain // ""')"
     acme_email="$(state_get '.acme_email // ""')"

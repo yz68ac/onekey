@@ -134,6 +134,41 @@ state_set_xhttp_reality() {
     chmod 600 "$STATE_FILE"
 }
 
+state_set_xhttp_reality_self() {
+    local domain="$1" acme_email="$2" address="$3" path="$4" port="$5" fallback_port="$6" private_key="$7" public_key="$8" short_id="$9"
+    local target="127.0.0.1:$fallback_port"
+    init_state_files
+    jq \
+        --arg domain "$domain" \
+        --arg acme_email "$acme_email" \
+        --arg address "$address" \
+        --arg path "$path" \
+        --arg target "$target" \
+        --argjson port "$port" \
+        --argjson fallback_port "$fallback_port" \
+        --arg private_key "$private_key" \
+        --arg public_key "$public_key" \
+        --arg short_id "$short_id" \
+        '.mode = "xhttp-reality-self"
+         | .domain = $domain
+         | .address = $address
+         | .acme_email = $acme_email
+         | .xhttp.path = $path
+         | .reality.server_name = $domain
+         | .reality.server_names = [$domain]
+         | .reality.target = $target
+         | .reality.address = $address
+         | .reality.listen_port = $port
+         | .reality.private_key = $private_key
+         | .reality.public_key = $public_key
+         | .reality.short_ids = [$short_id]
+         | .reality_self.listen = "127.0.0.1"
+         | .reality_self.port = $fallback_port' \
+        "$STATE_FILE" > "$STATE_FILE.tmp"
+    mv "$STATE_FILE.tmp" "$STATE_FILE"
+    chmod 600 "$STATE_FILE"
+}
+
 state_set_reality_self() {
     local domain="$1" acme_email="$2" address="$3" port="$4" fallback_port="$5" private_key="$6" public_key="$7" short_id="$8"
     local target="127.0.0.1:$fallback_port"

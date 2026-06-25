@@ -6,6 +6,7 @@
 - 支持 REALITY + Vision：Xray 直接监听 443，Caddy 会被停止以避免端口冲突。
 - 支持 REALITY self-steal + local Caddy：Xray 监听公网 443，REALITY 回落到本机 Caddy `127.0.0.1:8443`。
 - 支持 XHTTP + REALITY：Xray 直接监听 443，使用 XHTTP 传输和 REALITY 安全层。
+- 支持 XHTTP + REALITY self-steal + local Caddy：Xray 监听公网 443，XHTTP + REALITY 回落到本机 Caddy `127.0.0.1:8443`。
 - 支持快速添加、删除、列出 UUID 用户。
 - 支持按用户 email 查看 Xray Stats API 流量。
 - 支持生成 VLESS 分享链接。
@@ -104,6 +105,24 @@ Caddy HTTP -> public :80, normal webpage and ACME HTTP-01
 ```bash
 sudo ./xrayctl.sh switch xhttp-reality --server-name example.com --target example.com:443 --address your.server.com --path /secret
 ```
+
+切换到 XHTTP + REALITY self-steal + local Caddy：
+
+```bash
+sudo ./xrayctl.sh switch xhttp-reality-self --domain www.example.com --email admin@example.com --address your.server.com --path /secret --fallback-port 8443
+```
+
+这个模式会生成类似下面的关系：
+
+```text
+Client -> Xray XHTTP + REALITY :443
+Xray REALITY target -> 127.0.0.1:8443
+Caddy HTTPS -> 127.0.0.1:8443, cert for www.example.com
+Caddy HTTP -> public :80, normal webpage and ACME HTTP-01
+```
+
+XHTTP + REALITY self-steal 的分享链接会使用 `type=xhttp&security=reality`，不会带 `flow=xtls-rprx-vision`。
+
 查看流量：
 
 ```bash
