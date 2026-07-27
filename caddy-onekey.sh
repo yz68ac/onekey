@@ -91,7 +91,11 @@ install_caddy() {
     fi
 
     info "Installing Caddy from the official stable repository"
-    apt-get update
+    # xrayctl may have refreshed the index moments ago; the refresh after the
+    # Caddy repo is added below is the one that actually matters.
+    if [ "${ONEKEY_PKG_INDEX_FRESH:-0}" != "1" ]; then
+        apt-get update
+    fi
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
         debian-keyring debian-archive-keyring apt-transport-https \
         curl gpg

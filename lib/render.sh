@@ -329,7 +329,7 @@ apply_xray_config() {
     mkdir -p "$XRAY_CONFIG_DIR" /var/log/xray
     if id "$XRAY_RUN_USER" >/dev/null 2>&1; then
         local xray_group
-        xray_group="$(id -gn "$XRAY_RUN_USER")"
+        xray_group="$(id -gn "$XRAY_RUN_USER" 2>/dev/null || printf '%s' "$XRAY_RUN_USER")"
         touch /var/log/xray/access.log /var/log/xray/error.log
         chown "$XRAY_RUN_USER:$xray_group" /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
         chmod 600 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
@@ -389,7 +389,7 @@ switch_reality_vision() {
     fi
     validate_short_id "$short_id" || die "Invalid generated shortId"
 
-    if have_cmd systemctl && systemctl is-active --quiet "$CADDY_SERVICE"; then
+    if have_cmd systemctl && systemctl is-active --quiet "$CADDY_SERVICE" 2>/dev/null; then
         warn "Stopping Caddy because REALITY/Vision uses port $port directly"
         systemctl stop "$CADDY_SERVICE" || true
     fi
@@ -423,7 +423,7 @@ switch_xhttp_reality() {
     fi
     validate_short_id "$short_id" || die "Invalid generated shortId"
 
-    if have_cmd systemctl && systemctl is-active --quiet "$CADDY_SERVICE"; then
+    if have_cmd systemctl && systemctl is-active --quiet "$CADDY_SERVICE" 2>/dev/null; then
         warn "Stopping Caddy because XHTTP + REALITY uses port $port directly"
         systemctl stop "$CADDY_SERVICE" || true
     fi

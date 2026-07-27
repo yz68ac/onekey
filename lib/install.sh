@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 
 install_dependencies() {
-    detect_debian_ubuntu
-    info "Installing base dependencies"
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        ca-certificates curl wget jq gpg openssl coreutils lsb-release
+    ensure_base_deps
 }
 
 ensure_xray_user() {
@@ -23,8 +19,14 @@ ensure_xray_user() {
     fi
 }
 
+xray_service_user() {
+    have_cmd systemctl || return 1
+    systemctl show -p User --value "$XRAY_SERVICE" 2>/dev/null
+}
+
 install_xray() {
     ensure_xray_user
+    need_cmd curl
     if [ -x "$XRAY_BIN" ]; then
         info "Reinstalling Xray to refresh the official systemd service user"
         bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --reinstall --install-user "$XRAY_RUN_USER"
@@ -32,6 +34,21 @@ install_xray() {
         info "Installing Xray with the official XTLS installer"
         bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --install-user "$XRAY_RUN_USER"
     fi
+}
+
+# Skip the (slow) reinstall when Xray is already present and the official
+# systemd unit already runs as the dedicated user.
+install_xray_if_needed() {
+    ensure_xray_user
+    if [ -x "$XRAY_BIN" ] && [ "$(xray_service_user || true)" = "$XRAY_RUN_USER" ]; then
+        ui_good "Xray already installed and running as $XRAY_RUN_USER"
+        return 0
+    fi
+    install_xray
+    if have_cmd systemctl; then
+        systemctl enable "$XRAY_SERVICE" >/dev/null 2>&1 || true
+    fi
+    ui_good "Xray installed"
 }
 
 install_all() {
@@ -43,5 +60,5 @@ install_all() {
         systemctl enable "$XRAY_SERVICE" >/dev/null 2>&1 || true
     fi
     ok "Initialized xrayctl state and Xray config"
-    info "Next: add a user and switch mode, or run ./xrayctl.sh for the menu"
+    info "Next: run '$ONEKEY_ENTRY setup' for the guided one-key flow"
 }

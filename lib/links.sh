@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
 
-link_show() {
-    local email="${1:-}" mode uuid label encoded_label
-    init_state_files
-    if [ -z "$email" ]; then
-        email="$(single_user_email)"
-    fi
-    [ -n "$email" ] || die "Usage: ./xrayctl.sh link email"
+# build_link <email> -> the raw vless:// URL on stdout, nothing else.
+build_link() {
+    local email="$1" mode uuid label encoded_label
 
     uuid="$(user_uuid_by_email "$email")"
     [ -n "$uuid" ] || die "User not found: $email"
@@ -24,7 +20,7 @@ link_show() {
             printf 'vless://%s@%s:443?encryption=none&type=xhttp&security=tls&sni=%s&host=%s&path=%s&mode=auto&alpn=h2&fp=chrome#%s\n' \
                 "$uuid" "$domain" "$domain" "$domain" "$encoded_path" "$encoded_label"
             ;;
-        xhttp-reality|xhttp-reality-self)
+        xhttp-reality | xhttp-reality-self)
             local address port server_name public_key short_id path encoded_path encoded_spider
             address="$(state_get '.reality.address // .address // ""')"
             port="$(state_get '.reality.listen_port // 443')"
@@ -38,9 +34,9 @@ link_show() {
             [ -n "$server_name" ] || die "No REALITY serverName configured"
             [ -n "$public_key" ] || die "No REALITY public key configured"
             printf 'vless://%s@%s:%s?encryption=none&type=xhttp&security=reality&sni=%s&pbk=%s&sid=%s&spx=%s&path=%s&mode=auto&fp=chrome#%s\n' \
-                "$uuid" "$address" "$port" "$server_name" "$public_key" "$short_id" "$encoded_spider" "$encoded_path" "$encoded_label"
+                "$uuid" "$(format_host "$address")" "$port" "$server_name" "$public_key" "$short_id" "$encoded_spider" "$encoded_path" "$encoded_label"
             ;;
-        reality|reality-vision|vision|vison|reality-self)
+        reality | reality-vision | vision | vison | reality-self)
             local address port server_name public_key short_id encoded_spider
             address="$(state_get '.reality.address // .address // ""')"
             port="$(state_get '.reality.listen_port // 443')"
@@ -52,10 +48,62 @@ link_show() {
             [ -n "$server_name" ] || die "No REALITY serverName configured"
             [ -n "$public_key" ] || die "No REALITY public key configured"
             printf 'vless://%s@%s:%s?encryption=none&type=raw&security=reality&sni=%s&pbk=%s&sid=%s&spx=%s&fp=chrome&flow=xtls-rprx-vision#%s\n' \
-                "$uuid" "$address" "$port" "$server_name" "$public_key" "$short_id" "$encoded_spider" "$encoded_label"
+                "$uuid" "$(format_host "$address")" "$port" "$server_name" "$public_key" "$short_id" "$encoded_spider" "$encoded_label"
             ;;
         *)
             die "Unsupported mode: $mode"
             ;;
     esac
+}
+
+# link_show [email] [--no-qr] [--raw]
+#   --raw    print only the URL, for piping into other tools
+#   --no-qr  print the summary and URL but skip the QR block
+link_show() {
+    local email="" show_qr=1 raw=0 arg uuid link
+
+    for arg in "$@"; do
+        case "$arg" in
+            --no-qr) show_qr=0 ;;
+            --raw | --plain) raw=1 ;;
+            --qr) show_qr=1 ;;
+            "") ;;
+            *) email="$arg" ;;
+        esac
+    done
+
+    init_state_files
+    if [ -z "$email" ]; then
+        email="$(single_user_email)"
+    fi
+    [ -n "$email" ] || die "Usage: $ONEKEY_ENTRY link email"
+
+    link="$(build_link "$email")"
+
+    if [ "$raw" -eq 1 ]; then
+        printf '%s\n' "$link"
+        return 0
+    fi
+
+    uuid="$(user_uuid_by_email "$email")"
+    printf '\n'
+    ui_panel_top
+    ui_row "User" "$email"
+    ui_row "UUID" "$uuid"
+    ui_row "Mode" "$(mode_display_name "$(state_get '.mode // "xhttp"')")"
+    ui_panel_bottom
+    ui_link_block "$link" "$show_qr"
+}
+
+# Every user in one go, handy after adding a batch.
+link_show_all() {
+    local email first=1
+    init_state_files
+    while IFS= read -r email; do
+        [ -n "$email" ] || continue
+        [ "$first" -eq 1 ] || printf '\n'
+        first=0
+        link_show "$email" "$@"
+    done < <(jq -r '.users[]?.email' "$USERS_FILE")
+    [ "$first" -eq 0 ] || printf 'No users configured.\n'
 }

@@ -3,13 +3,21 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 export ONEKEY_ROOT="$SCRIPT_DIR"
+ONEKEY_ENTRY="${ONEKEY_ENTRY:-$SCRIPT_DIR/xrayctl.sh}"
+export ONEKEY_ENTRY
 
 # shellcheck source=lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/ui.sh
+. "$SCRIPT_DIR/lib/ui.sh"
+# shellcheck source=lib/deps.sh
+. "$SCRIPT_DIR/lib/deps.sh"
 # shellcheck source=lib/state.sh
 . "$SCRIPT_DIR/lib/state.sh"
 # shellcheck source=lib/generate.sh
 . "$SCRIPT_DIR/lib/generate.sh"
+# shellcheck source=lib/target.sh
+. "$SCRIPT_DIR/lib/target.sh"
 # shellcheck source=lib/users.sh
 . "$SCRIPT_DIR/lib/users.sh"
 # shellcheck source=lib/render.sh
@@ -24,13 +32,36 @@ export ONEKEY_ROOT="$SCRIPT_DIR"
 . "$SCRIPT_DIR/lib/traffic.sh"
 # shellcheck source=lib/links.sh
 . "$SCRIPT_DIR/lib/links.sh"
+# shellcheck source=lib/setup.sh
+. "$SCRIPT_DIR/lib/setup.sh"
 # shellcheck source=lib/menu.sh
 . "$SCRIPT_DIR/lib/menu.sh"
+
+ui_init
+init_tty
 
 usage() {
     cat <<'EOF'
 Usage:
-  ./xrayctl.sh
+  ./xrayctl.sh                      interactive menu
+  ./xrayctl.sh setup                one-key: deps + Xray + mode + user + link
+
+One-key options (everything not given is detected or generated):
+  ./xrayctl.sh setup --mode reality
+  ./xrayctl.sh setup --mode reality-self --domain www.example.com
+  ./xrayctl.sh setup --mode reality -y            fully unattended
+    --mode          reality | reality-self | xhttp | xhttp-reality | xhttp-reality-self
+    --domain        required by reality-self, xhttp and xhttp-reality-self
+    --email         ACME email, defaults to admin@<domain>
+    --address       address used in the share link, defaults to the detected public IP
+    --target        REALITY target, defaults to an auto-verified candidate
+    --path          XHTTP path, random when omitted
+    --port          Xray listen port
+    --fallback-port local Caddy HTTPS port for the self-steal modes
+    --user          first user email, defaults to default@onekey.local
+    -y, --yes       accept every default, never prompt
+
+Manual commands:
   ./xrayctl.sh menu
   ./xrayctl.sh install
   ./xrayctl.sh switch xhttp --domain example.com --email admin@example.com [--path /secret] [--port 10000]
@@ -44,7 +75,9 @@ Usage:
   ./xrayctl.sh user list
   ./xrayctl.sh traffic all
   ./xrayctl.sh traffic alice@example.com
-  ./xrayctl.sh link alice@example.com
+  ./xrayctl.sh link alice@example.com [--no-qr] [--raw]
+  ./xrayctl.sh link all
+  ./xrayctl.sh status-panel
   ./xrayctl.sh start|stop|restart|status|logs|test
 
 Runtime paths:
@@ -276,6 +309,9 @@ main() {
         menu)
             interactive_menu
             ;;
+        setup|onekey|one-key|quick)
+            onekey_setup "$@"
+            ;;
         help|-h|--help)
             usage
             ;;
@@ -317,6 +353,7 @@ main() {
                 add)
                     user_add "${1:-}" "${2:-}"
                     apply_xray_config_and_restart
+                    link_show "${1:-}"
                     ;;
                 del|delete|remove)
                     user_delete "${1:-}"
@@ -334,7 +371,18 @@ main() {
             traffic_show "${1:-all}"
             ;;
         link)
-            link_show "${1:-}"
+            case "${1:-}" in
+                all)
+                    shift
+                    link_show_all "$@"
+                    ;;
+                *)
+                    link_show "$@"
+                    ;;
+            esac
+            ;;
+        status-panel|panel|info)
+            onekey_status_panel
             ;;
         caddy)
             require_root

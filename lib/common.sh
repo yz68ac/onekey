@@ -41,7 +41,15 @@ have_cmd() {
 }
 
 need_cmd() {
-    have_cmd "$1" || die "Missing required command: $1"
+    local cmd="$1"
+    have_cmd "$cmd" && return 0
+    # lib/deps.sh knows how to install it. That file is sourced after this one,
+    # so resolve the function lazily at call time.
+    if declare -F ensure_cmd >/dev/null 2>&1; then
+        ensure_cmd "$cmd"
+        return 0
+    fi
+    die "Missing required command: $cmd"
 }
 
 require_root() {
@@ -138,18 +146,85 @@ detect_debian_ubuntu() {
     die "This project supports Debian/Ubuntu with systemd"
 }
 
-prompt() {
-    local label="$1" default="${2:-}" value
-    if [ -n "$default" ]; then
-        read -r -p "$label [$default]: " value
-        printf '%s\n' "${value:-$default}"
-    else
-        read -r -p "$label: " value
-        printf '%s\n' "$value"
+# When the script is launched as `wget -qO- ... | sudo bash`, stdin is the
+# script pipe, not the keyboard. Always talk to the real terminal if there is
+# one, otherwise every prompt silently reads EOF.
+ONEKEY_TTY=""
+ONEKEY_ASSUME_YES="${ONEKEY_ASSUME_YES:-0}"
+
+init_tty() {
+    if [ -r /dev/tty ] && [ -w /dev/tty ] && { : >/dev/tty; } 2>/dev/null; then
+        ONEKEY_TTY="/dev/tty"
     fi
+}
+
+have_tty() {
+    [ -n "$ONEKEY_TTY" ]
+}
+
+# ask <label> [default] -> value on stdout, prompt on the terminal.
+# Honours ONEKEY_ASSUME_YES: takes the default without asking.
+ask() {
+    local label="$1" default="${2:-}" value="" shown
+
+    if [ "$ONEKEY_ASSUME_YES" = "1" ] && [ -n "$default" ]; then
+        printf '%s\n' "$default"
+        return 0
+    fi
+
+    if [ -n "$default" ]; then
+        shown="$label [$default]: "
+    else
+        shown="$label: "
+    fi
+
+    if have_tty; then
+        printf '%s' "$shown" >"$ONEKEY_TTY"
+        IFS= read -r value <"$ONEKEY_TTY" || value=""
+    elif [ -t 0 ]; then
+        printf '%s' "$shown" >&2
+        IFS= read -r value || value=""
+    else
+        # No terminal at all: only defaults are possible.
+        value=""
+    fi
+
+    printf '%s\n' "${value:-$default}"
+}
+
+# Same as ask, but refuses to return empty.
+ask_required() {
+    local label="$1" default="${2:-}" hint="${3:-}" value
+    value="$(ask "$label" "$default")"
+    if [ -z "$value" ]; then
+        if [ -n "$hint" ]; then
+            die "$label is required. $hint"
+        fi
+        die "$label is required and no terminal was available to ask for it"
+    fi
+    printf '%s\n' "$value"
+}
+
+confirm() {
+    local label="$1" default="${2:-y}" value
+    value="$(ask "$label (y/n)" "$default")"
+    case "${value,,}" in
+        y | yes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Kept for backwards compatibility with existing call sites.
+prompt() {
+    ask "$@"
 }
 
 pause_menu() {
     printf '\n'
-    read -r -p "Press Enter to continue..." _
+    if have_tty; then
+        printf 'Press Enter to continue...' >"$ONEKEY_TTY"
+        IFS= read -r _ <"$ONEKEY_TTY" || true
+    else
+        read -r -p "Press Enter to continue..." _ || true
+    fi
 }

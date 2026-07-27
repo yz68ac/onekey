@@ -8,6 +8,7 @@ REPO_URL="${ONEKEY_REPO_URL:-https://github.com/yz68ac/onekey}"
 BRANCH="${ONEKEY_BRANCH:-main}"
 INSTALL_DIR="${ONEKEY_INSTALL_DIR:-/usr/local/onekey-xray-caddy}"
 ARCHIVE_URL="${REPO_URL}/archive/refs/heads/${BRANCH}.tar.gz"
+ONEKEY_TMP_DIR=""
 
 die() {
     printf 'ERROR: %s\n' "$*" >&2
@@ -26,6 +27,35 @@ have_cmd() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# The installer needs a downloader and tar before anything else can happen,
+# so bootstrap those without asking.
+bootstrap_tools() {
+    local missing=()
+    if ! have_cmd curl && ! have_cmd wget; then
+        missing+=(curl)
+    fi
+    have_cmd tar || missing+=(tar)
+    [ "${#missing[@]}" -gt 0 ] || return 0
+
+    info "Installing bootstrap tools: ${missing[*]}"
+    # Tell the rest of the pipeline the index is already current, so xrayctl
+    # and caddy-onekey.sh do not each run apt-get update again.
+    ONEKEY_PKG_INDEX_FRESH=1
+    export ONEKEY_PKG_INDEX_FRESH
+    if have_cmd apt-get; then
+        apt-get update -qq >/dev/null 2>&1 || true
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates "${missing[@]}" >/dev/null 2>&1 || true
+    elif have_cmd dnf; then
+        dnf install -y -q ca-certificates "${missing[@]}" >/dev/null 2>&1 || true
+    elif have_cmd yum; then
+        yum install -y -q ca-certificates "${missing[@]}" >/dev/null 2>&1 || true
+    elif have_cmd apk; then
+        apk add --no-cache ca-certificates "${missing[@]}" >/dev/null 2>&1 || true
+    elif have_cmd pacman; then
+        pacman -Sy --noconfirm --needed ca-certificates "${missing[@]}" >/dev/null 2>&1 || true
+    fi
+}
+
 require_root() {
     if [ "${EUID:-$(id -u)}" -ne 0 ]; then
         cat >&2 <<EOF
@@ -35,7 +65,7 @@ Recommended:
   wget -qO- https://raw.githubusercontent.com/yz68ac/onekey/main/install.sh | sudo bash
 
 With arguments:
-  wget -qO- https://raw.githubusercontent.com/yz68ac/onekey/main/install.sh | sudo bash -s -- menu
+  wget -qO- https://raw.githubusercontent.com/yz68ac/onekey/main/install.sh | sudo bash -s -- setup --mode reality -y
 EOF
         exit 1
     fi
@@ -76,6 +106,7 @@ install_project() {
 
     local tmp archive src staged parent
     tmp="$(mktemp -d)"
+    ONEKEY_TMP_DIR="$tmp"
     archive="$tmp/onekey.tar.gz"
     staged="${INSTALL_DIR}.new"
     parent="$(dirname "$INSTALL_DIR")"
@@ -109,8 +140,15 @@ install_project() {
 
 main() {
     require_root
+    bootstrap_tools
     install_project
-    exec "$INSTALL_DIR/xrayctl.sh" "${@:-menu}"
+    # install_project's EXIT trap will not run across exec, so clean up now.
+    trap - EXIT
+    rm -rf "${ONEKEY_TMP_DIR:-}" 2>/dev/null || true
+    if [ "$#" -eq 0 ]; then
+        exec "$INSTALL_DIR/xrayctl.sh" setup
+    fi
+    exec "$INSTALL_DIR/xrayctl.sh" "$@"
 }
 
 main "$@"
