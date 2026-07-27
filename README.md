@@ -30,6 +30,7 @@ sudo xrayctl user add bob@example.com # 加用户，自动打印链接和二维�
 sudo xrayctl link bob@example.com     # 单独看链接和二维码
 sudo xrayctl link all --no-qr         # 所有用户的链接，不要二维码
 sudo xrayctl status-panel             # 当前模式一览
+sudo xrayctl bbr status               # 查看 BBR 状态
 ```
 
 ### setup 参数
@@ -62,6 +63,7 @@ sudo xrayctl status-panel             # 当前模式一览
 - 支持快速添加、删除、列出 UUID 用户。
 - 支持按用户 email 查看 Xray Stats API 流量。
 - 支持生成 VLESS 分享链接。
+- 支持手动开启、关闭、查看 BBR；默认一键安装不会自动修改内核网络参数。
 - `caddy-onekey.sh` 可单独安装并配置 Caddy。
 - Caddy 安装流程贴近官方 Cloudsmith stable repo 命令。
 
@@ -208,6 +210,16 @@ sudo ./xrayctl.sh test
 sudo ./xrayctl.sh status-panel
 ```
 
+BBR 管理：
+
+```bash
+sudo ./xrayctl.sh bbr status
+sudo ./xrayctl.sh bbr on
+sudo ./xrayctl.sh bbr off
+```
+
+`bbr on` 会写入 `/etc/sysctl.d/99-onekey-bbr.conf` 并执行 `sysctl --system`，不会重启服务器、SSH、Xray 或 Caddy。`bbr off` 只删除这个脚本创建的配置文件，不会清理你在其他 sysctl 文件里手动设置的 BBR。
+
 单独安装并配置 Caddy：
 
 ```bash
@@ -235,6 +247,7 @@ sudo ./caddy-onekey.sh --mode reality-self --domain www.example.com --email admi
 | `XRAY_CONFIG` | `/usr/local/etc/xray/config.json` | Xray 生效配置路径 |
 | `XRAY_RUN_USER` | `xray` | Xray systemd 运行用户 |
 | `CADDYFILE` | `/etc/caddy/Caddyfile` | Caddy 生效配置路径 |
+| `BBR_SYSCTL_FILE` | `/etc/sysctl.d/99-onekey-bbr.conf` | BBR 配置文件 |
 
 ## 排查
 

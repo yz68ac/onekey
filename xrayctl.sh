@@ -32,6 +32,8 @@ export ONEKEY_ENTRY
 . "$SCRIPT_DIR/lib/traffic.sh"
 # shellcheck source=lib/links.sh
 . "$SCRIPT_DIR/lib/links.sh"
+# shellcheck source=lib/bbr.sh
+. "$SCRIPT_DIR/lib/bbr.sh"
 # shellcheck source=lib/setup.sh
 . "$SCRIPT_DIR/lib/setup.sh"
 # shellcheck source=lib/menu.sh
@@ -78,6 +80,7 @@ Manual commands:
   ./xrayctl.sh link alice@example.com [--no-qr] [--raw]
   ./xrayctl.sh link all
   ./xrayctl.sh status-panel
+  ./xrayctl.sh bbr status|on|off
   ./xrayctl.sh start|stop|restart|status|logs|test
 
 Runtime paths:
@@ -383,6 +386,9 @@ main() {
             ;;
         status-panel|panel|info)
             onekey_status_panel
+            ;;
+        bbr)
+            bbr_command "$@"
             ;;
         caddy)
             require_root

@@ -135,6 +135,9 @@ menu_body() {
  ${c_bold}13)${c_reset} Start    ${c_bold}14)${c_reset} Stop    ${c_bold}15)${c_reset} Restart   ${c_bold}16)${c_reset} Status
  ${c_bold}17)${c_reset} Logs     ${c_bold}18)${c_reset} Test config           ${c_bold}19)${c_reset} Re-apply Caddy
 
+  ${c_dim}-- kernel --${c_reset}
+ ${c_bold}20)${c_reset} BBR status       ${c_bold}21)${c_reset} Enable BBR          ${c_bold}22)${c_reset} Disable BBR
+
   ${c_bold}0)${c_reset} Exit
 EOF
 }
@@ -171,6 +174,9 @@ interactive_menu() {
                 require_root
                 caddy_apply_from_state
                 ;;
+            20) bbr_status ;;
+            21) bbr_enable ;;
+            22) bbr_disable ;;
             0 | q | quit | exit) exit 0 ;;
             *) warn "Unknown choice: $choice" ;;
         esac

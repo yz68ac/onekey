@@ -125,6 +125,18 @@ pkg_for_cmd() {
             ;;
         timeout | od | shuf) printf 'coreutils\n' ;;
         lsb_release) printf 'lsb-release\n' ;;
+        sysctl)
+            case "$ONEKEY_PKG_MANAGER" in
+                pacman) printf 'procps-ng\n' ;;
+                *) printf 'procps\n' ;;
+            esac
+            ;;
+        modprobe)
+            case "$ONEKEY_PKG_MANAGER" in
+                apk) printf 'kmod\n' ;;
+                *) printf 'kmod\n' ;;
+            esac
+            ;;
         *) printf '%s\n' "$cmd" ;;
     esac
 }
