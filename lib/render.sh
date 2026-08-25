@@ -4,6 +4,7 @@ render_xhttp_config() {
     local output="$1"
     init_state_files
     jq -n \
+        --arg min_version "$ONEKEY_MIN_XRAY_VERSION" \
         --slurpfile state "$STATE_FILE" \
         --slurpfile users "$USERS_FILE" '
         def client:
@@ -13,6 +14,7 @@ render_xhttp_config() {
                 level: (.level // 0)
             };
         {
+            version: { min: $min_version },
             log: {
                 loglevel: "warning",
                 error: "/var/log/xray/error.log",
@@ -27,7 +29,8 @@ render_xhttp_config() {
                 levels: {
                     "0": {
                         statsUserUplink: true,
-                        statsUserDownlink: true
+                        statsUserDownlink: true,
+                        statsUserOnline: true
                     }
                 },
                 system: {
@@ -97,6 +100,7 @@ render_reality_config() {
     local output="$1"
     init_state_files
     jq -n \
+        --arg min_version "$ONEKEY_MIN_XRAY_VERSION" \
         --slurpfile state "$STATE_FILE" \
         --slurpfile users "$USERS_FILE" '
         def client:
@@ -107,6 +111,7 @@ render_reality_config() {
                 level: (.level // 0)
             };
         {
+            version: { min: $min_version },
             log: {
                 loglevel: "warning",
                 error: "/var/log/xray/error.log",
@@ -121,7 +126,8 @@ render_reality_config() {
                 levels: {
                     "0": {
                         statsUserUplink: true,
-                        statsUserDownlink: true
+                        statsUserDownlink: true,
+                        statsUserOnline: true
                     }
                 },
                 system: {
@@ -195,6 +201,7 @@ render_xhttp_reality_config() {
     local output="$1"
     init_state_files
     jq -n \
+        --arg min_version "$ONEKEY_MIN_XRAY_VERSION" \
         --slurpfile state "$STATE_FILE" \
         --slurpfile users "$USERS_FILE" '
         def client:
@@ -204,6 +211,7 @@ render_xhttp_reality_config() {
                 level: (.level // 0)
             };
         {
+            version: { min: $min_version },
             log: {
                 loglevel: "warning",
                 error: "/var/log/xray/error.log",
@@ -218,7 +226,8 @@ render_xhttp_reality_config() {
                 levels: {
                     "0": {
                         statsUserUplink: true,
-                        statsUserDownlink: true
+                        statsUserDownlink: true,
+                        statsUserOnline: true
                     }
                 },
                 system: {
@@ -324,21 +333,59 @@ test_xray_config_file() {
     fi
 }
 
+install_xray_logrotate() {
+    local xray_group="$1" server tmp
+    server="$(state_get '(.api.host // "127.0.0.1") + ":" + ((.api.port // 32768) | tostring)')"
+    tmp="$(mktemp)"
+    cat > "$tmp" <<EOF
+/var/log/xray/access.log /var/log/xray/error.log {
+    daily
+    maxsize 10M
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    su $XRAY_RUN_USER $xray_group
+    create 0600 $XRAY_RUN_USER $xray_group
+    sharedscripts
+    postrotate
+        "$XRAY_BIN" api restartlogger --server="$server" >/dev/null 2>&1 || true
+    endscript
+}
+EOF
+    install -d -m 0755 "$(dirname "$XRAY_LOGROTATE_FILE")"
+    logrotate -d "$tmp" >/dev/null 2>&1 || die "Generated logrotate policy is invalid"
+    install -m 0644 "$tmp" "$XRAY_LOGROTATE_FILE"
+    rm -f "$tmp"
+}
+
 apply_xray_config() {
     init_state_files
-    mkdir -p "$XRAY_CONFIG_DIR" /var/log/xray
-    if id "$XRAY_RUN_USER" >/dev/null 2>&1; then
-        local xray_group
-        xray_group="$(id -gn "$XRAY_RUN_USER" 2>/dev/null || printf '%s' "$XRAY_RUN_USER")"
-        touch /var/log/xray/access.log /var/log/xray/error.log
-        chown "$XRAY_RUN_USER:$xray_group" /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
-        chmod 600 /var/log/xray/access.log /var/log/xray/error.log 2>/dev/null || true
-    fi
     local rendered="$RENDERED_DIR/config.$(timestamp).json"
+    local xray_group=""
+
+    if id "$XRAY_RUN_USER" >/dev/null 2>&1; then
+        xray_group="$(id -gn "$XRAY_RUN_USER" 2>/dev/null || printf '%s' "$XRAY_RUN_USER")"
+        install -d -o root -g "$xray_group" -m 0750 "$XRAY_CONFIG_DIR" /var/log/xray
+        touch /var/log/xray/access.log /var/log/xray/error.log
+        chown "$XRAY_RUN_USER:$xray_group" /var/log/xray/access.log /var/log/xray/error.log
+        chmod 600 /var/log/xray/access.log /var/log/xray/error.log
+        install_xray_logrotate "$xray_group"
+    else
+        mkdir -p "$XRAY_CONFIG_DIR" /var/log/xray
+        chmod 700 "$XRAY_CONFIG_DIR" /var/log/xray
+    fi
+
     render_xray_config "$rendered"
+    chmod 600 "$rendered"
     test_xray_config_file "$rendered"
     backup_file "$XRAY_CONFIG"
-    install -m 0644 "$rendered" "$XRAY_CONFIG"
+    if [ -n "$xray_group" ]; then
+        install -o root -g "$xray_group" -m 0640 "$rendered" "$XRAY_CONFIG"
+    else
+        install -m 0600 "$rendered" "$XRAY_CONFIG"
+    fi
     ok "Wrote Xray config: $XRAY_CONFIG"
 }
 
@@ -346,6 +393,7 @@ apply_xray_config_and_restart() {
     apply_xray_config
     if have_cmd systemctl; then
         systemctl restart "$XRAY_SERVICE"
+        systemctl is-active --quiet "$XRAY_SERVICE" || die "$XRAY_SERVICE did not become active after restart"
         ok "Restarted $XRAY_SERVICE"
     fi
 }
@@ -360,9 +408,11 @@ switch_xhttp() {
     validate_port "$port" || die "Invalid port: $port"
     path="$(normalize_path "$path")"
 
+    transaction_begin
     state_set_xhttp "$domain" "$acme_email" "$path" "$port"
     apply_xray_config_and_restart
     caddy_apply_from_state
+    transaction_commit
     ok "Switched to XHTTP + Caddy"
 }
 
@@ -370,8 +420,12 @@ switch_reality_vision() {
     local server_name="$1" target="$2" address="$3" port="$4"
     validate_domain "$server_name" || die "Invalid serverName: $server_name"
     validate_port "$port" || die "Invalid port: $port"
-    [ -n "$target" ] || die "REALITY target cannot be empty"
-    [ -n "$address" ] || die "Client address cannot be empty"
+    target="$(normalize_reality_target "$target")" ||
+        die "Invalid REALITY target: $target (expected host[:port] or [IPv6]:port)"
+    validate_client_address "$address" || die "Invalid client address: $address"
+    if is_discouraged_reality_target "$(reality_target_host "$target")"; then
+        warn "Discouraged REALITY target: $target; prefer a verified site in this server's ASN"
+    fi
 
     init_state_files
     local private_key public_key short_id keys
@@ -389,6 +443,7 @@ switch_reality_vision() {
     fi
     validate_short_id "$short_id" || die "Invalid generated shortId"
 
+    transaction_begin
     if have_cmd systemctl && systemctl is-active --quiet "$CADDY_SERVICE" 2>/dev/null; then
         warn "Stopping Caddy because REALITY/Vision uses port $port directly"
         systemctl stop "$CADDY_SERVICE" || true
@@ -396,6 +451,7 @@ switch_reality_vision() {
 
     state_set_reality "$server_name" "$target" "$address" "$port" "$private_key" "$public_key" "$short_id"
     apply_xray_config_and_restart
+    transaction_commit
     ok "Switched to REALITY + Vision"
 }
 
@@ -403,8 +459,12 @@ switch_xhttp_reality() {
     local server_name="$1" target="$2" address="$3" path="$4" port="$5"
     validate_domain "$server_name" || die "Invalid serverName: $server_name"
     validate_port "$port" || die "Invalid port: $port"
-    [ -n "$target" ] || die "REALITY target cannot be empty"
-    [ -n "$address" ] || die "Client address cannot be empty"
+    target="$(normalize_reality_target "$target")" ||
+        die "Invalid REALITY target: $target (expected host[:port] or [IPv6]:port)"
+    validate_client_address "$address" || die "Invalid client address: $address"
+    if is_discouraged_reality_target "$(reality_target_host "$target")"; then
+        warn "Discouraged REALITY target: $target; prefer a verified site in this server's ASN"
+    fi
     path="$(normalize_path "$path")"
 
     init_state_files
@@ -423,6 +483,7 @@ switch_xhttp_reality() {
     fi
     validate_short_id "$short_id" || die "Invalid generated shortId"
 
+    transaction_begin
     if have_cmd systemctl && systemctl is-active --quiet "$CADDY_SERVICE" 2>/dev/null; then
         warn "Stopping Caddy because XHTTP + REALITY uses port $port directly"
         systemctl stop "$CADDY_SERVICE" || true
@@ -430,6 +491,7 @@ switch_xhttp_reality() {
 
     state_set_xhttp_reality "$server_name" "$target" "$address" "$path" "$port" "$private_key" "$public_key" "$short_id"
     apply_xray_config_and_restart
+    transaction_commit
     ok "Switched to XHTTP + REALITY"
 }
 
@@ -443,7 +505,7 @@ switch_xhttp_reality_self() {
     validate_port "$port" || die "Invalid Xray listen port: $port"
     validate_port "$fallback_port" || die "Invalid local Caddy fallback port: $fallback_port"
     [ "$port" != "$fallback_port" ] || die "Xray listen port and local Caddy fallback port must be different"
-    [ -n "$address" ] || die "Client address cannot be empty"
+    validate_client_address "$address" || die "Invalid client address: $address"
     path="$(normalize_path "$path")"
 
     init_state_files
@@ -462,9 +524,11 @@ switch_xhttp_reality_self() {
     fi
     validate_short_id "$short_id" || die "Invalid generated shortId"
 
+    transaction_begin
     state_set_xhttp_reality_self "$domain" "$acme_email" "$address" "$path" "$port" "$fallback_port" "$private_key" "$public_key" "$short_id"
     caddy_apply_from_state
     apply_xray_config_and_restart
+    transaction_commit
     ok "Switched to XHTTP + REALITY self-steal + local Caddy"
 }
 
@@ -478,7 +542,7 @@ switch_reality_self() {
     validate_port "$port" || die "Invalid Xray listen port: $port"
     validate_port "$fallback_port" || die "Invalid local Caddy fallback port: $fallback_port"
     [ "$port" != "$fallback_port" ] || die "Xray listen port and local Caddy fallback port must be different"
-    [ -n "$address" ] || die "Client address cannot be empty"
+    validate_client_address "$address" || die "Invalid client address: $address"
 
     init_state_files
     local private_key public_key short_id keys
@@ -496,8 +560,10 @@ switch_reality_self() {
     fi
     validate_short_id "$short_id" || die "Invalid generated shortId"
 
+    transaction_begin
     state_set_reality_self "$domain" "$acme_email" "$address" "$port" "$fallback_port" "$private_key" "$public_key" "$short_id"
     caddy_apply_from_state
     apply_xray_config_and_restart
+    transaction_commit
     ok "Switched to REALITY self-steal + local Caddy"
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 022
 
 PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/snap/bin
 export PATH
@@ -7,6 +8,8 @@ export PATH
 CADDYFILE="${CADDYFILE:-/etc/caddy/Caddyfile}"
 CADDY_SERVICE="${CADDY_SERVICE:-caddy}"
 SITE_ROOT="${SITE_ROOT:-/usr/share/caddy}"
+CADDY_ROLLBACK_FILE=""
+CADDYFILE_EXISTED=0
 
 die() {
     printf 'ERROR: %s\n' "$*" >&2
@@ -35,6 +38,11 @@ require_root() {
     fi
 }
 
+require_option_value() {
+    local option="$1" value="${2:-}"
+    [ -n "$value" ] && [[ "$value" != -* ]] || die "$option requires a value"
+}
+
 validate_domain() {
     local domain="$1"
     [[ "$domain" =~ ^([A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$ ]]
@@ -58,6 +66,20 @@ validate_local_listen() {
     esac
 }
 
+validate_xhttp_path() {
+    local path="$1"
+    [ -n "$path" ] || return 1
+    [ "${#path}" -le 256 ] || return 1
+    [[ "$path" =~ ^/[A-Za-z0-9._~!%+,:=@/-]+$ ]]
+}
+
+validate_filesystem_path() {
+    local path="$1"
+    [ -n "$path" ] || return 1
+    [[ "$path" == /* ]] || return 1
+    [[ "$path" =~ ^/[A-Za-z0-9._~%+,:=@/-]+$ ]]
+}
+
 normalize_path() {
     local path="$1"
     [ -n "$path" ] || die "Path cannot be empty"
@@ -67,6 +89,8 @@ normalize_path() {
     esac
     path="${path%/}"
     [ -n "$path" ] || path="/xhttp"
+    validate_xhttp_path "$path" ||
+        die "Invalid XHTTP path; use URL-safe characters only"
     printf '%s\n' "$path"
 }
 
@@ -86,8 +110,11 @@ detect_debian_ubuntu() {
 install_caddy() {
     detect_debian_ubuntu
     if have_cmd caddy; then
-        info "Caddy already installed: $(caddy version 2>/dev/null || true)"
-        return 0
+        if ! have_cmd systemctl || systemctl cat "$CADDY_SERVICE" >/dev/null 2>&1; then
+            info "Caddy already installed: $(caddy version 2>/dev/null || true)"
+            return 0
+        fi
+        warn "Caddy binary exists but the $CADDY_SERVICE systemd unit is missing; installing the official package"
     fi
 
     info "Installing Caddy from the official stable repository"
@@ -123,11 +150,27 @@ install_generated_caddyfile() {
         rm -f "$tmp"
         die "Generated Caddyfile validation failed"
     fi
+
+    CADDYFILE_EXISTED=0
+    CADDY_ROLLBACK_FILE=""
     if [ -f "$CADDYFILE" ]; then
-        cp -a "$CADDYFILE" "$CADDYFILE.$(date '+%Y%m%d-%H%M%S').bak"
+        CADDYFILE_EXISTED=1
+        CADDY_ROLLBACK_FILE="$CADDYFILE.$(date '+%Y%m%d-%H%M%S')-$$.bak"
+        cp -a "$CADDYFILE" "$CADDY_ROLLBACK_FILE"
+        if ! grep -q '^# Managed by OneKey Xray' "$CADDYFILE"; then
+            warn "Existing unmanaged Caddyfile will be replaced; backup: $CADDY_ROLLBACK_FILE"
+        fi
     fi
     install -m 0644 "$tmp" "$CADDYFILE"
     rm -f "$tmp"
+}
+
+restore_generated_caddyfile() {
+    if [ "$CADDYFILE_EXISTED" -eq 1 ] && [ -f "$CADDY_ROLLBACK_FILE" ]; then
+        cp -a "$CADDY_ROLLBACK_FILE" "$CADDYFILE"
+    else
+        rm -f "$CADDYFILE"
+    fi
 }
 
 write_xhttp_caddyfile() {
@@ -137,6 +180,7 @@ write_xhttp_caddyfile() {
     mkdir -p "$(dirname "$CADDYFILE")" "$site_root"
 
     cat > "$tmp" <<EOF
+# Managed by OneKey Xray. Manual changes may be replaced.
 {
     email $email
 }
@@ -149,6 +193,7 @@ $domain {
         transport http {
             versions h2c 2
         }
+        flush_interval -1
         header_up Host {host}
     }
 
@@ -169,6 +214,7 @@ write_reality_self_caddyfile() {
     mkdir -p "$(dirname "$CADDYFILE")" "$site_root"
 
     cat > "$tmp" <<EOF
+# Managed by OneKey Xray. Manual changes may be replaced.
 {
     email $email
 }
@@ -202,7 +248,7 @@ reload_caddy() {
     if have_cmd systemctl; then
         systemctl enable "$CADDY_SERVICE" >/dev/null 2>&1 || true
         if systemctl is-active --quiet "$CADDY_SERVICE"; then
-            systemctl reload "$CADDY_SERVICE" || systemctl restart "$CADDY_SERVICE"
+            systemctl reload "$CADDY_SERVICE"
         else
             systemctl start "$CADDY_SERVICE"
         fi
@@ -238,6 +284,7 @@ main() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --mode)
+                require_option_value "$1" "${2:-}"
                 mode="${2:-}"
                 shift 2
                 ;;
@@ -246,30 +293,37 @@ main() {
                 shift
                 ;;
             --domain)
+                require_option_value "$1" "${2:-}"
                 domain="${2:-}"
                 shift 2
                 ;;
             --email)
+                require_option_value "$1" "${2:-}"
                 email="${2:-}"
                 shift 2
                 ;;
             --xhttp-port|--port)
+                require_option_value "$1" "${2:-}"
                 xhttp_port="${2:-}"
                 shift 2
                 ;;
             --path)
+                require_option_value "$1" "${2:-}"
                 xhttp_path="${2:-}"
                 shift 2
                 ;;
             --fallback-listen|--listen)
+                require_option_value "$1" "${2:-}"
                 fallback_listen="${2:-}"
                 shift 2
                 ;;
             --fallback-port|--local-port|--https-port)
+                require_option_value "$1" "${2:-}"
                 fallback_port="${2:-}"
                 shift 2
                 ;;
             --site-root)
+                require_option_value "$1" "${2:-}"
                 site_root="${2:-}"
                 shift 2
                 ;;
@@ -296,6 +350,7 @@ main() {
 
     validate_domain "$domain" || die "Invalid domain: $domain"
     validate_email "$email" || die "Invalid email: $email"
+    validate_filesystem_path "$site_root" || die "Invalid --site-root path: $site_root"
 
     case "$mode" in
         xhttp)
@@ -314,7 +369,10 @@ main() {
             die "Unsupported Caddy mode: $mode"
             ;;
     esac
-    reload_caddy
+    if ! reload_caddy; then
+        restore_generated_caddyfile
+        die "Caddy reload/start failed; restored the previous Caddyfile"
+    fi
     ok "Caddy configured: $CADDYFILE"
 }
 

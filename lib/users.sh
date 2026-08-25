@@ -16,28 +16,45 @@ user_add() {
         uuid="$(generate_uuid "$uuid")"
     fi
     validate_uuid "$uuid" || die "Invalid UUID: $uuid"
+    if jq -e --arg uuid "${uuid,,}" '.users[]? | select((.id | ascii_downcase) == $uuid)' "$USERS_FILE" >/dev/null; then
+        die "UUID is already assigned to another user: $uuid"
+    fi
 
     jq --arg email "$email" --arg uuid "$uuid" \
         '.users += [{"email": $email, "id": $uuid, "level": 0}]' \
         "$USERS_FILE" > "$USERS_FILE.tmp"
-    mv "$USERS_FILE.tmp" "$USERS_FILE"
-    chmod 600 "$USERS_FILE"
+    replace_private_file "$USERS_FILE.tmp" "$USERS_FILE"
     ok "Added user $email"
     printf 'UUID: %s\n' "$uuid"
 }
 
 user_delete() {
-    local email="${1:-}" before after
+    local email="${1:-}"
     [ -n "$email" ] || die "Usage: ./xrayctl.sh user del email"
     init_state_files
-    before="$(jq '.users | length' "$USERS_FILE")"
+    if ! jq -e --arg email "$email" '.users[]? | select(.email == $email)' "$USERS_FILE" >/dev/null; then
+        die "User not found: $email"
+    fi
     jq --arg email "$email" '.users |= map(select(.email != $email))' \
         "$USERS_FILE" > "$USERS_FILE.tmp"
-    mv "$USERS_FILE.tmp" "$USERS_FILE"
-    chmod 600 "$USERS_FILE"
-    after="$(jq '.users | length' "$USERS_FILE")"
-    [ "$before" != "$after" ] || die "User not found: $email"
+    replace_private_file "$USERS_FILE.tmp" "$USERS_FILE"
     ok "Deleted user $email"
+}
+
+user_add_and_apply() {
+    local email="${1:-}" uuid="${2:-}"
+    transaction_begin
+    user_add "$email" "$uuid"
+    apply_xray_config_and_restart
+    transaction_commit
+}
+
+user_delete_and_apply() {
+    local email="${1:-}"
+    transaction_begin
+    user_delete "$email"
+    apply_xray_config_and_restart
+    transaction_commit
 }
 
 user_list() {

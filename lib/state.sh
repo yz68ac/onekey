@@ -74,8 +74,7 @@ state_set_xhttp() {
          | .xhttp.path = $path
          | .xhttp.port = $port' \
         "$STATE_FILE" > "$STATE_FILE.tmp"
-    mv "$STATE_FILE.tmp" "$STATE_FILE"
-    chmod 600 "$STATE_FILE"
+    replace_private_file "$STATE_FILE.tmp" "$STATE_FILE"
 }
 
 state_set_reality() {
@@ -101,8 +100,7 @@ state_set_reality() {
          | .reality.public_key = $public_key
          | .reality.short_ids = [$short_id]' \
         "$STATE_FILE" > "$STATE_FILE.tmp"
-    mv "$STATE_FILE.tmp" "$STATE_FILE"
-    chmod 600 "$STATE_FILE"
+    replace_private_file "$STATE_FILE.tmp" "$STATE_FILE"
 }
 
 state_set_xhttp_reality() {
@@ -130,8 +128,7 @@ state_set_xhttp_reality() {
          | .reality.public_key = $public_key
          | .reality.short_ids = [$short_id]' \
         "$STATE_FILE" > "$STATE_FILE.tmp"
-    mv "$STATE_FILE.tmp" "$STATE_FILE"
-    chmod 600 "$STATE_FILE"
+    replace_private_file "$STATE_FILE.tmp" "$STATE_FILE"
 }
 
 state_set_xhttp_reality_self() {
@@ -165,8 +162,7 @@ state_set_xhttp_reality_self() {
          | .reality_self.listen = "127.0.0.1"
          | .reality_self.port = $fallback_port' \
         "$STATE_FILE" > "$STATE_FILE.tmp"
-    mv "$STATE_FILE.tmp" "$STATE_FILE"
-    chmod 600 "$STATE_FILE"
+    replace_private_file "$STATE_FILE.tmp" "$STATE_FILE"
 }
 
 state_set_reality_self() {
@@ -198,6 +194,5 @@ state_set_reality_self() {
          | .reality_self.listen = "127.0.0.1"
          | .reality_self.port = $fallback_port' \
         "$STATE_FILE" > "$STATE_FILE.tmp"
-    mv "$STATE_FILE.tmp" "$STATE_FILE"
-    chmod 600 "$STATE_FILE"
+    replace_private_file "$STATE_FILE.tmp" "$STATE_FILE"
 }

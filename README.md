@@ -1,14 +1,18 @@
 # OneKey Xray + Caddy
 
+中文 | [English](README.en.md)
+
 ## 一键安装
 
 一条命令搞定：装依赖、装 Xray、选模式、建用户、出分享链接和二维码。
+
+完整自动化目前以 **Debian/Ubuntu + systemd** 为支持基线；其他发行版的依赖安装器可以识别，但 Xray/Caddy 服务流程尚未承诺完整兼容。
 
 ```bash
 wget -qO- https://raw.githubusercontent.com/yz68ac/onekey/main/install.sh | sudo bash
 ```
 
-跑完只会问一个问题（选哪种模式），域名类模式再多问一个域名，其余全部自动：公网 IP 自动探测、REALITY target 自动挑选并验证 TLSv1.3 + h2、路径和 UUID 自动生成、ACME 邮箱按域名推导。
+跑完只会问一个问题（选哪种模式），域名类模式再多问一个域名，其余全部自动：公网 IP 自动探测、REALITY target 自动挑选并验证证书、TLSv1.3 与 h2，路径和 UUID 自动生成，ACME 邮箱按域名推导。
 
 完全无人值守（一句话都不问）：
 
@@ -30,6 +34,9 @@ sudo xrayctl user add bob@example.com # 加用户，自动打印链接和二维�
 sudo xrayctl link bob@example.com     # 单独看链接和二维码
 sudo xrayctl link all --no-qr         # 所有用户的链接，不要二维码
 sudo xrayctl status-panel             # 当前模式一览
+sudo xrayctl version                  # OneKey / Xray / Caddy 版本
+sudo xrayctl doctor                   # 完整健康检查
+sudo xrayctl doctor --offline         # 跳过 DNS 和 target 联网检查
 sudo xrayctl bbr status               # 查看 BBR 状态
 ```
 
@@ -43,14 +50,15 @@ sudo xrayctl bbr status               # 查看 BBR 状态
 | `--domain` | `reality-self`、`xhttp`、`xhttp-reality-self` 必需 |
 | `--email` | ACME 邮箱，默认按域名推导为 `admin@<域名>` |
 | `--address` | 分享链接里的地址，默认取自动探测到的公网 IP |
-| `--target` | REALITY 回落目标，默认从内置候选里挑一个通过 TLSv1.3 + h2 验证的 |
+| `--target` | REALITY 回落目标，接受 `host[:port]`，默认从内置候选里挑一个通过证书、TLSv1.3 与 h2 验证的 |
+| `--skip-target-check` | 仅高级排障使用：接受显式 target，不执行联网验证 |
 | `--path` | XHTTP 路径，不给则随机 |
 | `--port` | Xray 监听端口 |
 | `--fallback-port` | self-steal 模式下本机 Caddy 的 HTTPS 端口 |
 | `--user` | 首个用户 email，默认 `default@onekey.local` |
 | `-y` | 全部走默认值，绝不提问 |
 
-依赖（`curl` `wget` `jq` `openssl` `tar` `gpg` `qrencode`）缺什么装什么，支持 apt / dnf / yum / apk / pacman；`qrencode` 装不上只会少一个二维码，不影响主流程。
+依赖（`curl` `wget` `jq` `openssl` `tar` `gpg` `logrotate` `timeout`，以及可选的 `qrencode`）缺什么装什么；依赖层支持 apt / dnf / yum / apk / pacman，完整服务支持范围见上方说明。`qrencode` 装不上只会少一个二维码，不影响主流程。
 
 ## 功能
 - `xrayctl.sh setup` 一键直达：依赖 → Xray → 模式 → 用户 → 链接 + 二维码。
@@ -61,7 +69,9 @@ sudo xrayctl bbr status               # 查看 BBR 状态
 - 支持 XHTTP + REALITY：Xray 直接监听 443，使用 XHTTP 传输和 REALITY 安全层。
 - 支持 XHTTP + REALITY self-steal + local Caddy：Xray 监听公网 443，XHTTP + REALITY 回落到本机 Caddy `127.0.0.1:8443`。
 - 支持快速添加、删除、列出 UUID 用户。
-- 支持按用户 email 查看 Xray Stats API 流量。
+- 支持按用户 email 查看 Xray Stats API 流量，并兼容当前 JSON 与旧文本输出。
+- 配置和用户变更带跨进程锁、快照与失败自动回滚。
+- 内置 `doctor`、版本基线检查、私密文件权限检查和 Xray 日志轮转。
 - 支持生成 VLESS 分享链接。
 - 支持手动开启、关闭、查看 BBR；默认一键安装不会自动修改内核网络参数。
 - `caddy-onekey.sh` 可单独安装并配置 Caddy。
@@ -80,15 +90,23 @@ sudo xrayctl bbr status               # 查看 BBR 状态
 - 模式状态：`/etc/onekey-xray/state.json`
 - 配置备份：`/etc/onekey-xray/backups`
 - 渲染输出：`/etc/onekey-xray/rendered`
+- Xray 日志轮转：`/etc/logrotate.d/onekey-xray`
 
-`/etc/onekey-xray` 只给脚本保存状态，不替代 Xray 官方配置目录。
+`/etc/onekey-xray` 只给脚本保存状态，不替代 Xray 官方配置目录。状态、用户、渲染和备份目录使用私密权限；Xray 生效配置默认为 `0640 root:xray`。
+
+## 安全和回滚
+
+- 模式切换、用户增删和一键流程会先快照状态、Xray 配置、Caddyfile、logrotate 配置及服务状态。
+- 任一步骤失败都会恢复旧文件，并只在配置或服务状态确实变化时恢复对应服务。
+- 同一时间只允许一个写操作；异常退出留下的锁会在确认原进程不存在后自动清理。
+- Caddyfile 每次覆盖前都会生成带时间戳的备份；非 OneKey 管理的 Caddyfile 会给出明确警告。
 
 `/usr/local/bin/xrayctl` 由 `setup` 创建；如果该路径上已经存在一个真实文件（不是软链），脚本不会覆盖它，只是跳过，后续用完整路径调用即可。可用 `ONEKEY_CLI_LINK` 改到别处。
 
 ## 服务用户
 
 - Xray：脚本会创建 `xray` 系统用户，并调用官方安装脚本的 `--install-user xray`，让 systemd 服务以专属用户运行。
-- `setup` 会先看 systemd unit 的 `User=` 是不是已经是 `xray`：是就跳过重装，省掉每次一键都去 GitHub 拉一遍官方安装器；不是（或没装过）才真正安装。
+- `setup` 会同时检查 systemd unit 的 `User=` 和 Xray 版本：运行用户正确且版本不低于当前支持基线时跳过重装，否则自动刷新到官方稳定版本。
 - `install` 子命令始终强制走 `--reinstall --install-user xray` 刷新官方 systemd service。官方安装器在版本未变化时可能直接退出而不改运行用户，所以想强制纠正运行用户时用 `install` 而不是 `setup`。
 - Caddy：脚本使用 Caddy 官方 apt 包安装，服务用户和 systemd unit 交给官方包维护，通常为 `caddy` 用户。
 
@@ -184,6 +202,8 @@ XHTTP + REALITY self-steal 的分享链接会使用 `type=xhttp&security=reality
 sudo ./xrayctl.sh traffic all
 sudo ./xrayctl.sh traffic alice@example.com
 ```
+
+这里显示的是 Xray 当前进程内的计数。脚本现在一次读取完整快照，避免多用户逐项查询造成口径漂移；需要跨重启累计账单时仍应接入持久化存储。
 生成分享链接（默认带二维码）：
 
 ```bash
@@ -247,14 +267,28 @@ sudo ./caddy-onekey.sh --mode reality-self --domain www.example.com --email admi
 | `XRAY_CONFIG` | `/usr/local/etc/xray/config.json` | Xray 生效配置路径 |
 | `XRAY_RUN_USER` | `xray` | Xray systemd 运行用户 |
 | `CADDYFILE` | `/etc/caddy/Caddyfile` | Caddy 生效配置路径 |
+| `XRAY_LOGROTATE_FILE` | `/etc/logrotate.d/onekey-xray` | Xray 日志轮转配置 |
+| `ONEKEY_MIN_XRAY_VERSION` | `26.3.27` | OneKey 支持的最低 Xray 版本 |
 | `BBR_SYSCTL_FILE` | `/etc/sysctl.d/99-onekey-bbr.conf` | BBR 配置文件 |
 
 ## 排查
+
+先运行 `sudo xrayctl doctor`；需要在无网络环境只检查文件、版本和服务时使用 `sudo xrayctl doctor --offline`。`--json` 可供自动化采集。
 
 - 一键跑完连不上：先确认服务商安全组／防火墙放行了对应端口，脚本不会替你改防火墙。可以用 `https://tcp.ping.pe/ip:port` 验证端口是否真的开放。
 - `reality-self` / `xhttp-reality-self` 拿不到证书：这两个模式下 Xray 占着公网 443，Caddy 只能走 HTTP-01，所以公网 80 必须可达，域名也必须已经解析到本机。一键流程会在切换前做一次解析检查，不匹配只警告不阻断；直接用 `switch` 子命令则不做这个检查。
 - 二维码在终端里糊成一团：终端窗口太窄导致换行，拉宽窗口重跑 `xrayctl link <email>`，或者用 `--raw` 取裸链接自己贴到客户端。
 - 想把输出写进日志：`xrayctl link alice@example.com --raw` 或加 `NO_COLOR=1`，避免 ANSI 转义混进文件。
+
+## 本地测试
+
+```bash
+bash -n xrayctl.sh install.sh caddy-onekey.sh lib/*.sh tests/*.sh
+bash tests/run.sh
+bash tests/render.sh
+```
+
+本地测试覆盖路径/地址/target 校验、Xray `x25519` 命令历代输出标签、JSON/旧式流量解析、版本比较、事务回滚和操作锁。真实的 Xray、Caddy、systemd、证书申请和端口切换仍需在 Linux 容器或测试 VPS 中做集成验证。
 
 ## 参考
 

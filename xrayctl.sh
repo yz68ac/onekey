@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 077
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 export ONEKEY_ROOT="$SCRIPT_DIR"
@@ -14,6 +15,8 @@ export ONEKEY_ENTRY
 . "$SCRIPT_DIR/lib/deps.sh"
 # shellcheck source=lib/state.sh
 . "$SCRIPT_DIR/lib/state.sh"
+# shellcheck source=lib/transaction.sh
+. "$SCRIPT_DIR/lib/transaction.sh"
 # shellcheck source=lib/generate.sh
 . "$SCRIPT_DIR/lib/generate.sh"
 # shellcheck source=lib/target.sh
@@ -36,6 +39,8 @@ export ONEKEY_ENTRY
 . "$SCRIPT_DIR/lib/bbr.sh"
 # shellcheck source=lib/setup.sh
 . "$SCRIPT_DIR/lib/setup.sh"
+# shellcheck source=lib/doctor.sh
+. "$SCRIPT_DIR/lib/doctor.sh"
 # shellcheck source=lib/menu.sh
 . "$SCRIPT_DIR/lib/menu.sh"
 
@@ -57,6 +62,7 @@ One-key options (everything not given is detected or generated):
     --email         ACME email, defaults to admin@<domain>
     --address       address used in the share link, defaults to the detected public IP
     --target        REALITY target, defaults to an auto-verified candidate
+    --skip-target-check  accept an explicit REALITY target without probing it
     --path          XHTTP path, random when omitted
     --port          Xray listen port
     --fallback-port local Caddy HTTPS port for the self-steal modes
@@ -80,6 +86,8 @@ Manual commands:
   ./xrayctl.sh link alice@example.com [--no-qr] [--raw]
   ./xrayctl.sh link all
   ./xrayctl.sh status-panel
+  ./xrayctl.sh version
+  ./xrayctl.sh doctor [--offline] [--json]
   ./xrayctl.sh bbr status|on|off
   ./xrayctl.sh start|stop|restart|status|logs|test
 
@@ -96,18 +104,22 @@ parse_switch_xhttp() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --domain)
+                require_option_value "$1" "${2:-}"
                 domain="${2:-}"
                 shift 2
                 ;;
             --email|--acme-email)
+                require_option_value "$1" "${2:-}"
                 acme_email="${2:-}"
                 shift 2
                 ;;
             --path)
+                require_option_value "$1" "${2:-}"
                 path="${2:-}"
                 shift 2
                 ;;
             --port|--xhttp-port)
+                require_option_value "$1" "${2:-}"
                 port="${2:-}"
                 shift 2
                 ;;
@@ -135,18 +147,22 @@ parse_switch_reality() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --server-name|--sni)
+                require_option_value "$1" "${2:-}"
                 server_name="${2:-}"
                 shift 2
                 ;;
             --target|--dest)
+                require_option_value "$1" "${2:-}"
                 target="${2:-}"
                 shift 2
                 ;;
             --address)
+                require_option_value "$1" "${2:-}"
                 address="${2:-}"
                 shift 2
                 ;;
             --port)
+                require_option_value "$1" "${2:-}"
                 port="${2:-}"
                 shift 2
                 ;;
@@ -176,22 +192,27 @@ parse_switch_xhttp_reality() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --server-name|--sni)
+                require_option_value "$1" "${2:-}"
                 server_name="${2:-}"
                 shift 2
                 ;;
             --target|--dest)
+                require_option_value "$1" "${2:-}"
                 target="${2:-}"
                 shift 2
                 ;;
             --address)
+                require_option_value "$1" "${2:-}"
                 address="${2:-}"
                 shift 2
                 ;;
             --path)
+                require_option_value "$1" "${2:-}"
                 path="${2:-}"
                 shift 2
                 ;;
             --port)
+                require_option_value "$1" "${2:-}"
                 port="${2:-}"
                 shift 2
                 ;;
@@ -219,22 +240,27 @@ parse_switch_reality_self() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --domain|--server-name|--sni)
+                require_option_value "$1" "${2:-}"
                 domain="${2:-}"
                 shift 2
                 ;;
             --email|--acme-email)
+                require_option_value "$1" "${2:-}"
                 acme_email="${2:-}"
                 shift 2
                 ;;
             --address)
+                require_option_value "$1" "${2:-}"
                 address="${2:-}"
                 shift 2
                 ;;
             --port)
+                require_option_value "$1" "${2:-}"
                 port="${2:-}"
                 shift 2
                 ;;
             --fallback-port|--local-port|--https-port)
+                require_option_value "$1" "${2:-}"
                 fallback_port="${2:-}"
                 shift 2
                 ;;
@@ -261,26 +287,32 @@ parse_switch_xhttp_reality_self() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --domain|--server-name|--sni)
+                require_option_value "$1" "${2:-}"
                 domain="${2:-}"
                 shift 2
                 ;;
             --email|--acme-email)
+                require_option_value "$1" "${2:-}"
                 acme_email="${2:-}"
                 shift 2
                 ;;
             --address)
+                require_option_value "$1" "${2:-}"
                 address="${2:-}"
                 shift 2
                 ;;
             --path)
+                require_option_value "$1" "${2:-}"
                 path="${2:-}"
                 shift 2
                 ;;
             --port)
+                require_option_value "$1" "${2:-}"
                 port="${2:-}"
                 shift 2
                 ;;
             --fallback-port|--local-port|--https-port)
+                require_option_value "$1" "${2:-}"
                 fallback_port="${2:-}"
                 shift 2
                 ;;
@@ -354,13 +386,11 @@ main() {
             shift || true
             case "$action" in
                 add)
-                    user_add "${1:-}" "${2:-}"
-                    apply_xray_config_and_restart
+                    user_add_and_apply "${1:-}" "${2:-}"
                     link_show "${1:-}"
                     ;;
                 del|delete|remove)
-                    user_delete "${1:-}"
-                    apply_xray_config_and_restart
+                    user_delete_and_apply "${1:-}"
                     ;;
                 list|ls)
                     user_list
@@ -386,6 +416,12 @@ main() {
             ;;
         status-panel|panel|info)
             onekey_status_panel
+            ;;
+        version|versions)
+            version_show
+            ;;
+        doctor|checkup|diagnose)
+            doctor_command "$@"
             ;;
         bbr)
             bbr_command "$@"

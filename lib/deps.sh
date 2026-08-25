@@ -178,7 +178,7 @@ ensure_cmd() {
 }
 
 # Everything the manager itself needs to run.
-ONEKEY_CORE_DEPS=(curl wget jq openssl tar gpg)
+ONEKEY_CORE_DEPS=(curl wget jq openssl tar gpg logrotate timeout)
 # Nice to have; absence only degrades output.
 ONEKEY_EXTRA_DEPS=(qrencode)
 

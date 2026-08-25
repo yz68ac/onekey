@@ -1,3 +1,4 @@
+# Managed by OneKey Xray. Manual changes may be replaced.
 {
     email admin@example.com
 }
@@ -10,6 +11,7 @@ example.com {
         transport http {
             versions h2c 2
         }
+        flush_interval -1
         header_up Host {host}
         header_up X-Forwarded-Proto {scheme}
     }

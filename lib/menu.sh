@@ -25,9 +25,11 @@ menu_switch_reality() {
     local server_name target address port
     server_name="$(ask "REALITY serverName/SNI, empty to auto-pick")"
     if [ -z "$server_name" ]; then
-        server_name="$(setup_resolve_target)"
+        target="$(setup_resolve_target)"
+        server_name="$(reality_target_host "$target")"
+    else
+        target="$(ask "REALITY target" "$server_name:443")"
     fi
-    target="$(ask "REALITY target" "$server_name:443")"
     address="$(ask "Client address in share link" "$(detect_public_ip || printf '%s' "$server_name")")"
     port="$(ask "Xray listen port" "443")"
     switch_reality_vision "$server_name" "$target" "$address" "$port"
@@ -39,9 +41,11 @@ menu_switch_xhttp_reality() {
     local server_name target address path port
     server_name="$(ask "REALITY serverName/SNI, empty to auto-pick")"
     if [ -z "$server_name" ]; then
-        server_name="$(setup_resolve_target)"
+        target="$(setup_resolve_target)"
+        server_name="$(reality_target_host "$target")"
+    else
+        target="$(ask "REALITY target" "$server_name:443")"
     fi
-    target="$(ask "REALITY target" "$server_name:443")"
     address="$(ask "Client address in share link" "$(detect_public_ip || printf '%s' "$server_name")")"
     path="$(ask "XHTTP path" "$(generate_path)")"
     port="$(ask "Xray listen port" "443")"
@@ -79,8 +83,7 @@ menu_user_add() {
     local email uuid
     email="$(ask "User email" "user$(random_hex 2)@onekey.local")"
     uuid="$(ask "UUID or custom seed, leave empty to auto-generate")"
-    user_add "$email" "$uuid"
-    apply_xray_config_and_restart
+    user_add_and_apply "$email" "$uuid"
     link_show "$email"
 }
 
@@ -89,8 +92,7 @@ menu_user_del() {
     local email
     user_list
     email="$(ask "User email to delete")"
-    user_delete "$email"
-    apply_xray_config_and_restart
+    user_delete_and_apply "$email"
 }
 
 menu_traffic() {

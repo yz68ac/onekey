@@ -12,6 +12,7 @@ SETUP_PATH=""
 SETUP_PORT=""
 SETUP_FALLBACK_PORT=""
 SETUP_USER=""
+SETUP_SKIP_TARGET_CHECK=0
 
 SETUP_DEFAULT_USER="default@onekey.local"
 ONEKEY_CLI_LINK="${ONEKEY_CLI_LINK:-/usr/local/bin/xrayctl}"
@@ -108,19 +109,36 @@ setup_resolve_address() {
     ask_required "Server address for the share link" "" "Pass --address explicitly."
 }
 
+setup_prepare_target() {
+    local input="$1" normalized host
+    normalized="$(normalize_reality_target "$input")" ||
+        die "Invalid REALITY target: $input (expected host[:port] or [IPv6]:port)"
+    host="$(reality_target_host "$normalized")"
+    if is_discouraged_reality_target "$host"; then
+        ui_bad "$host is a discouraged REALITY target; prefer a verified site in this server's ASN"
+    fi
+    if [ "$SETUP_SKIP_TARGET_CHECK" != "1" ]; then
+        ui_note "verifying REALITY target: $normalized"
+        verify_reality_target "$normalized" ||
+            die "REALITY target failed certificate/TLSv1.3/h2 validation: $normalized"
+    fi
+    printf '%s\n' "$normalized"
+}
+
 setup_resolve_target() {
-    local host
+    local target
     if [ -n "$SETUP_TARGET" ]; then
-        printf '%s\n' "$SETUP_TARGET"
+        setup_prepare_target "$SETUP_TARGET"
         return 0
     fi
     ui_note "probing REALITY target candidates..."
-    if host="$(pick_reality_target)"; then
-        printf '%s\n' "$host"
+    if target="$(pick_reality_target)"; then
+        printf '%s\n' "$target"
         return 0
     fi
-    ui_bad "no candidate passed the TLSv1.3 + h2 check from this server"
-    ask_required "REALITY target domain" "www.microsoft.com" "Pass --target explicitly."
+    ui_bad "no candidate passed the certificate + TLSv1.3 + h2 check from this server"
+    target="$(ask_required "REALITY target" "www.microsoft.com:443" "Pass --target explicitly.")"
+    setup_prepare_target "$target"
 }
 
 setup_ensure_user() {
@@ -186,25 +204,29 @@ setup_email_for() {
 }
 
 setup_run_mode() {
-    local mode="$1" address domain email target path port fallback
+    local mode="$1" address domain email target target_host path port fallback
 
     case "$mode" in
         reality)
             address="$(setup_resolve_address)"
             target="$(setup_resolve_target)"
+            target_host="$(reality_target_host "$target")"
             port="${SETUP_PORT:-443}"
+            validate_port "$port" || die "Invalid Xray listen port: $port"
             setup_warn_port "$port" "Xray"
             ui_step "Applying REALITY + Vision"
-            switch_reality_vision "${SETUP_SNI:-$target}" "$target:443" "$address" "$port"
+            switch_reality_vision "${SETUP_SNI:-$target_host}" "$target" "$address" "$port"
             ;;
         xhttp-reality)
             address="$(setup_resolve_address)"
             target="$(setup_resolve_target)"
+            target_host="$(reality_target_host "$target")"
             path="${SETUP_PATH:-$(generate_path)}"
             port="${SETUP_PORT:-443}"
+            validate_port "$port" || die "Invalid Xray listen port: $port"
             setup_warn_port "$port" "Xray"
             ui_step "Applying XHTTP + REALITY"
-            switch_xhttp_reality "${SETUP_SNI:-$target}" "$target:443" "$address" "$path" "$port"
+            switch_xhttp_reality "${SETUP_SNI:-$target_host}" "$target" "$address" "$path" "$port"
             ;;
         xhttp)
             address="$(setup_resolve_address)"
@@ -212,6 +234,9 @@ setup_run_mode() {
             email="$(setup_email_for "$domain")"
             path="${SETUP_PATH:-$(generate_path)}"
             port="${SETUP_PORT:-10000}"
+            validate_port "$port" || die "Invalid local XHTTP port: $port"
+            setup_warn_port "$port" "Xray"
+            setup_warn_port 80 "Caddy"
             setup_warn_port 443 "Caddy"
             ui_step "Applying XHTTP + Caddy"
             switch_xhttp "$domain" "$email" "$path" "$port"
@@ -222,7 +247,11 @@ setup_run_mode() {
             email="$(setup_email_for "$domain")"
             port="${SETUP_PORT:-443}"
             fallback="${SETUP_FALLBACK_PORT:-8443}"
+            validate_port "$port" || die "Invalid Xray listen port: $port"
+            validate_port "$fallback" || die "Invalid local Caddy fallback port: $fallback"
             setup_warn_port "$port" "Xray"
+            setup_warn_port "$fallback" "Caddy"
+            setup_warn_port 80 "Caddy"
             ui_step "Applying REALITY self-steal + local Caddy"
             switch_reality_self "$domain" "$email" "$address" "$port" "$fallback"
             ;;
@@ -233,7 +262,11 @@ setup_run_mode() {
             path="${SETUP_PATH:-$(generate_path)}"
             port="${SETUP_PORT:-443}"
             fallback="${SETUP_FALLBACK_PORT:-8443}"
+            validate_port "$port" || die "Invalid Xray listen port: $port"
+            validate_port "$fallback" || die "Invalid local Caddy fallback port: $fallback"
             setup_warn_port "$port" "Xray"
+            setup_warn_port "$fallback" "Caddy"
+            setup_warn_port 80 "Caddy"
             ui_step "Applying XHTTP + REALITY self-steal + local Caddy"
             switch_xhttp_reality_self "$domain" "$email" "$address" "$path" "$port" "$fallback"
             ;;
@@ -320,44 +353,58 @@ setup_parse_args() {
     while [ "$#" -gt 0 ]; do
         case "$1" in
             --mode)
+                require_option_value "$1" "${2:-}"
                 SETUP_MODE="${2:-}"
                 shift 2
                 ;;
             --domain)
+                require_option_value "$1" "${2:-}"
                 SETUP_DOMAIN="${2:-}"
                 shift 2
                 ;;
             --email | --acme-email)
+                require_option_value "$1" "${2:-}"
                 SETUP_EMAIL="${2:-}"
                 shift 2
                 ;;
             --address)
+                require_option_value "$1" "${2:-}"
                 SETUP_ADDRESS="${2:-}"
                 shift 2
                 ;;
             --target | --dest)
+                require_option_value "$1" "${2:-}"
                 SETUP_TARGET="${2:-}"
                 shift 2
                 ;;
             --server-name | --sni)
+                require_option_value "$1" "${2:-}"
                 SETUP_SNI="${2:-}"
                 shift 2
                 ;;
             --path)
+                require_option_value "$1" "${2:-}"
                 SETUP_PATH="${2:-}"
                 shift 2
                 ;;
             --port)
+                require_option_value "$1" "${2:-}"
                 SETUP_PORT="${2:-}"
                 shift 2
                 ;;
             --fallback-port | --local-port | --https-port)
+                require_option_value "$1" "${2:-}"
                 SETUP_FALLBACK_PORT="${2:-}"
                 shift 2
                 ;;
             --user)
+                require_option_value "$1" "${2:-}"
                 SETUP_USER="${2:-}"
                 shift 2
+                ;;
+            --skip-target-check)
+                SETUP_SKIP_TARGET_CHECK=1
+                shift
                 ;;
             -y | --yes | --non-interactive)
                 ONEKEY_ASSUME_YES=1
@@ -386,6 +433,7 @@ onekey_setup() {
     install_xray_if_needed
     install_cli_shortcut
     init_state_files
+    transaction_begin
 
     local mode
     if [ -n "$SETUP_MODE" ]; then
@@ -402,6 +450,7 @@ onekey_setup() {
     user_email="$(setup_ensure_user)"
 
     setup_run_mode "$mode"
+    transaction_commit
 
     onekey_status_panel "$user_email"
     ui_link_block "$(build_link "$user_email")"

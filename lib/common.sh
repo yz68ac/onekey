@@ -15,9 +15,13 @@ STATE_FILE="${STATE_FILE:-$ONEKEY_STATE_DIR/state.json}"
 USERS_FILE="${USERS_FILE:-$ONEKEY_STATE_DIR/users.json}"
 BACKUP_DIR="${BACKUP_DIR:-$ONEKEY_STATE_DIR/backups}"
 RENDERED_DIR="${RENDERED_DIR:-$ONEKEY_STATE_DIR/rendered}"
+XRAY_LOGROTATE_FILE="${XRAY_LOGROTATE_FILE:-/etc/logrotate.d/onekey-xray}"
 
 API_HOST_DEFAULT="127.0.0.1"
 API_PORT_DEFAULT="32768"
+ONEKEY_VERSION="${ONEKEY_VERSION:-0.2.0}"
+export ONEKEY_VERSION
+ONEKEY_MIN_XRAY_VERSION="${ONEKEY_MIN_XRAY_VERSION:-26.3.27}"
 
 die() {
     printf 'ERROR: %s\n' "$*" >&2
@@ -60,11 +64,28 @@ require_root() {
 
 ensure_dirs() {
     mkdir -p "$ONEKEY_STATE_DIR" "$BACKUP_DIR" "$RENDERED_DIR"
+    chmod 700 "$ONEKEY_STATE_DIR" "$BACKUP_DIR" "$RENDERED_DIR"
 }
 
 timestamp() {
-    date '+%Y%m%d-%H%M%S'
+    printf '%s-%s-%s\n' "$(date '+%Y%m%d-%H%M%S')" "$$" "${RANDOM:-0}"
 }
+
+require_option_value() {
+    local option="$1" value="${2:-}"
+    [ -n "$value" ] && [[ "$value" != -* ]] || die "$option requires a value"
+}
+xray_version_number() {
+    [ -x "$XRAY_BIN" ] || return 1
+    "$XRAY_BIN" version 2>/dev/null | sed -n '1{s/^Xray[[:space:]]\+v\?\([0-9][0-9.]*\).*$/\1/p;q;}'
+}
+
+version_at_least() {
+    local actual="$1" minimum="$2"
+    [ -n "$actual" ] || return 1
+    [ "$(printf '%s\n%s\n' "$minimum" "$actual" | sort -V | head -n 1)" = "$minimum" ]
+}
+
 
 validate_domain() {
     local domain="$1"
@@ -91,6 +112,14 @@ validate_short_id() {
     [[ "$sid" =~ ^([0-9a-fA-F]{2}){0,8}$ ]]
 }
 
+validate_xhttp_path() {
+    local path="$1"
+    [ -n "$path" ] || return 1
+    [ "${#path}" -le 256 ] || return 1
+    [[ "$path" == /* ]] || return 1
+    [[ "$path" =~ ^/[A-Za-z0-9._~!%+,:=@/-]+$ ]]
+}
+
 normalize_path() {
     local path="$1"
     [ -n "$path" ] || die "Path cannot be empty"
@@ -100,7 +129,16 @@ normalize_path() {
     esac
     path="${path%/}"
     [ -n "$path" ] || path="/xhttp"
+    validate_xhttp_path "$path" ||
+        die "Invalid XHTTP path; use URL-safe characters only (letters, digits, / . _ ~ ! % + , : = @ -)"
     printf '%s\n' "$path"
+}
+
+replace_private_file() {
+    local src="$1" dest="$2"
+    chmod 600 "$src"
+    mv -f "$src" "$dest"
+    chmod 600 "$dest"
 }
 
 backup_file() {

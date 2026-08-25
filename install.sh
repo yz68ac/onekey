@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+umask 022
 
 PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin:~/bin:/snap/bin
 export PATH
@@ -9,6 +10,7 @@ BRANCH="${ONEKEY_BRANCH:-main}"
 INSTALL_DIR="${ONEKEY_INSTALL_DIR:-/usr/local/onekey-xray-caddy}"
 ARCHIVE_URL="${REPO_URL}/archive/refs/heads/${BRANCH}.tar.gz"
 ONEKEY_TMP_DIR=""
+ONEKEY_STAGED_DIR=""
 
 die() {
     printf 'ERROR: %s\n' "$*" >&2
@@ -91,9 +93,9 @@ require_install_dir() {
 download_archive() {
     local output="$1"
     if have_cmd curl; then
-        curl -fsSL "$ARCHIVE_URL" -o "$output"
+        curl -fsSL --retry 3 --retry-connrefused --connect-timeout 10 "$ARCHIVE_URL" -o "$output"
     elif have_cmd wget; then
-        wget -q -O "$output" "$ARCHIVE_URL"
+        wget -q --tries=3 --timeout=30 -O "$output" "$ARCHIVE_URL"
     else
         die "curl or wget is required"
     fi
@@ -109,6 +111,7 @@ install_project() {
     ONEKEY_TMP_DIR="$tmp"
     archive="$tmp/onekey.tar.gz"
     staged="${INSTALL_DIR}.new"
+    ONEKEY_STAGED_DIR="$staged"
     parent="$(dirname "$INSTALL_DIR")"
     trap 'rm -rf "$tmp" "$staged"' EXIT
 
@@ -145,6 +148,7 @@ main() {
     # install_project's EXIT trap will not run across exec, so clean up now.
     trap - EXIT
     rm -rf "${ONEKEY_TMP_DIR:-}" 2>/dev/null || true
+    rm -rf "${ONEKEY_STAGED_DIR:-}" 2>/dev/null || true
     if [ "$#" -eq 0 ]; then
         exec "$INSTALL_DIR/xrayctl.sh" setup
     fi
