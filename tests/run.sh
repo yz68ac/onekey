@@ -156,6 +156,15 @@ assert_eq "parse Xray version" "26.3.27" "$(xray_version_number)"
 assert_ok "version comparison" version_at_least "26.3.27" "26.3.27"
 assert_fail "version comparison rejects old version" version_at_least "25.8.3" "26.3.27"
 
+mkdir -p "$TEST_TMP/shortcut"
+ln -s "$TEST_ROOT/xrayctl.sh" "$TEST_TMP/shortcut/xrayctl"
+if [ -L "$TEST_TMP/shortcut/xrayctl" ]; then
+    assert_ok "CLI shortcut resolves the installation root" \
+        bash "$TEST_TMP/shortcut/xrayctl" --help
+else
+    printf '[SKIP] CLI shortcut test (filesystem symlinks unavailable)\n'
+fi
+
 mkdir -p "$ONEKEY_STATE_DIR" "$XRAY_CONFIG_DIR"
 printf '{"version":1,"mode":"xhttp","api":{"host":"127.0.0.1","port":32768},"xhttp":{"path":"/x","port":10000}}\n' > "$STATE_FILE"
 printf '{"users":[]}\n' > "$USERS_FILE"

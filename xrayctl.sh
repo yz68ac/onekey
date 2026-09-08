@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+SCRIPT_DIR="$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")"
 export ONEKEY_ROOT="$SCRIPT_DIR"
 ONEKEY_ENTRY="${ONEKEY_ENTRY:-$SCRIPT_DIR/xrayctl.sh}"
 export ONEKEY_ENTRY
