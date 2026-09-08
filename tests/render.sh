@@ -23,8 +23,8 @@ export BACKUP_DIR="$ONEKEY_STATE_DIR/backups"
 export RENDERED_DIR="$ONEKEY_STATE_DIR/rendered"
 export XRAY_CONFIG_DIR="$TEST_TMP/xray"
 export XRAY_CONFIG="$XRAY_CONFIG_DIR/config.json"
-export XRAY_BIN="$TEST_TMP/xray"
-mkdir -p "$ONEKEY_STATE_DIR" "$XRAY_CONFIG_DIR"
+export XRAY_BIN="$TEST_TMP/bin/xray"
+mkdir -p "$ONEKEY_STATE_DIR" "$XRAY_CONFIG_DIR" "$(dirname "$XRAY_BIN")"
 
 cat > "$XRAY_BIN" <<'EOF'
 #!/usr/bin/env bash
