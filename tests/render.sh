@@ -104,6 +104,53 @@ for mode in xhttp reality-vision xhttp-reality reality-self xhttp-reality-self; 
     assert_jq "$mode has one user" "$output" '.inbounds[1].settings.clients | length == 1'
 done
 
+cp "$output" "$XRAY_CONFIG"
+if reality_config_matches_state; then
+    printf '[PASS] REALITY state/config sync detected\n'
+else
+    printf '[FAIL] matching REALITY state/config reported as drifted\n' >&2
+    exit 1
+fi
+
+jq '(.inbounds[] | select(.streamSettings.realitySettings != null)
+    | .streamSettings.realitySettings.target) = "www.sony.jp:443"' \
+    "$XRAY_CONFIG" > "$XRAY_CONFIG.tmp"
+replace_private_file "$XRAY_CONFIG.tmp" "$XRAY_CONFIG"
+if reality_config_matches_state; then
+    printf '[FAIL] REALITY config drift was not detected\n' >&2
+    exit 1
+fi
+printf '[PASS] REALITY config drift detected\n'
+
+. "$TEST_ROOT/lib/setup.sh"
+. "$TEST_ROOT/lib/menu.sh"
+require_root() { return 0; }
+switch_xhttp_reality_self() {
+    printf '%s|%s|%s|%s|%s|%s\n' "$1" "$2" "$3" "$4" "$5" "$6"
+}
+onekey_status_panel() { return 0; }
+ONEKEY_ASSUME_YES=1
+menu_values="$(menu_reconfigure_current)"
+if [ "$menu_values" != "www.microsoft.com|admin@example.com|203.0.113.7|/test.path|443|8443" ]; then
+    printf '[FAIL] current-mode reconfigure did not preserve existing values: %s\n' "$menu_values" >&2
+    exit 1
+fi
+printf '[PASS] current-mode reconfigure preserved existing values\n'
+
+ask() {
+    case "$1" in
+        "REALITY serverName/SNI, empty to auto-pick") printf 'www.sony.jp\n' ;;
+        *) printf '%s\n' "${2:-}" ;;
+    esac
+}
+switch_reality_vision() { printf '%s|%s|%s|%s\n' "$1" "$2" "$3" "$4"; }
+menu_values="$(menu_switch_reality 1)"
+if [ "$menu_values" != "www.sony.jp|www.sony.jp:443|203.0.113.7|443" ]; then
+    printf '[FAIL] changed SNI did not update the suggested target: %s\n' "$menu_values" >&2
+    exit 1
+fi
+printf '[PASS] changed SNI updates the suggested target\n'
+
 if (user_add bob@example.com 00000000-0000-4000-8000-000000000001 >/dev/null 2>&1); then
     printf '[FAIL] duplicate UUID was accepted\n' >&2
     exit 1

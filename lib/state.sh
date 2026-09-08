@@ -59,6 +59,39 @@ state_get() {
     jq -r "$1" "$STATE_FILE"
 }
 
+# Return success when the REALITY identity used for share links matches at
+# least one REALITY inbound in the rendered Xray configuration.
+reality_config_matches_state() {
+    local server_name target private_key short_id
+    [ -f "$STATE_FILE" ] && [ -f "$XRAY_CONFIG" ] || return 1
+
+    server_name="$(jq -r '.reality.server_name // ""' "$STATE_FILE")"
+    target="$(jq -r '.reality.target // ""' "$STATE_FILE")"
+    private_key="$(jq -r '.reality.private_key // ""' "$STATE_FILE")"
+    short_id="$(jq -r '(.reality.short_ids // []) | .[0] // ""' "$STATE_FILE")"
+    [ -n "$server_name" ] && [ -n "$target" ] &&
+        [ -n "$private_key" ] && [ -n "$short_id" ] || return 1
+
+    jq -e --arg server_name "$server_name" --arg target "$target" --arg private_key "$private_key" --arg short_id "$short_id" 'any(
+            .inbounds[]?;
+            (.streamSettings.realitySettings // null) as $reality
+            | $reality != null
+            and $reality.target == $target
+            and (($reality.serverNames // []) | index($server_name)) != null
+            and $reality.privateKey == $private_key
+            and (($reality.shortIds // []) | index($short_id)) != null
+        )' "$XRAY_CONFIG" >/dev/null 2>&1
+}
+
+reality_config_drift_detail() {
+    local state_server state_target config_server config_target
+    state_server="$(jq -r '.reality.server_name // "(empty)"' "$STATE_FILE")"
+    state_target="$(jq -r '.reality.target // "(empty)"' "$STATE_FILE")"
+    config_server="$(jq -r '[.inbounds[]? | .streamSettings.realitySettings? | select(. != null)][0].serverNames[0] // "(missing)"' "$XRAY_CONFIG" 2>/dev/null || printf '(invalid)')"
+    config_target="$(jq -r '[.inbounds[]? | .streamSettings.realitySettings? | select(. != null)][0].target // "(missing)"' "$XRAY_CONFIG" 2>/dev/null || printf '(invalid)')"
+    printf 'state SNI/target=%s/%s; Xray SNI/target=%s/%s' "$state_server" "$state_target" "$config_server" "$config_target"
+}
+
 state_set_xhttp() {
     local domain="$1" acme_email="$2" path="$3" port="$4"
     init_state_files

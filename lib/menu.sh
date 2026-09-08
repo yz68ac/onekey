@@ -11,71 +11,134 @@ menu_install() {
 
 menu_switch_xhttp() {
     require_root
-    local domain acme_email path port
-    domain="$(ask "Domain for Caddy/XHTTP")"
-    acme_email="$(ask "ACME email" "$(derive_acme_email "$domain")")"
-    path="$(ask "XHTTP path" "$(generate_path)")"
-    port="$(ask "Local Xray XHTTP port" "10000")"
+    local use_current="${1:-0}" domain acme_email path port
+    local domain_default="" email_default="" path_default="" port_default="10000"
+    if [ "$use_current" = "1" ]; then
+        domain_default="$(state_get '.domain // ""')"
+        email_default="$(state_get '.acme_email // ""')"
+        path_default="$(state_get '.xhttp.path // ""')"
+        port_default="$(state_get '.xhttp.port // 10000')"
+    fi
+    domain="$(ask_required "Domain for Caddy/XHTTP" "$domain_default")"
+    acme_email="$(ask "ACME email" "${email_default:-$(derive_acme_email "$domain")}")"
+    path="$(ask "XHTTP path" "${path_default:-$(generate_path)}")"
+    port="$(ask "Local Xray XHTTP port" "$port_default")"
     switch_xhttp "$domain" "$acme_email" "$path" "$port"
     onekey_status_panel
 }
 
 menu_switch_reality() {
     require_root
-    local server_name target address port
-    server_name="$(ask "REALITY serverName/SNI, empty to auto-pick")"
+    local use_current="${1:-0}" server_name target suggested_target address port
+    local server_default="" target_default="" address_default="" port_default="443"
+    if [ "$use_current" = "1" ]; then
+        server_default="$(state_get '.reality.server_name // ""')"
+        target_default="$(state_get '.reality.target // ""')"
+        address_default="$(state_get '.reality.address // .address // ""')"
+        port_default="$(state_get '.reality.listen_port // 443')"
+    fi
+    server_name="$(ask "REALITY serverName/SNI, empty to auto-pick" "$server_default")"
     if [ -z "$server_name" ]; then
         target="$(setup_resolve_target)"
         server_name="$(reality_target_host "$target")"
     else
-        target="$(ask "REALITY target" "$server_name:443")"
+        if [ "$use_current" = "1" ] && [ "$server_name" = "$server_default" ]; then
+            suggested_target="${target_default:-$server_name:443}"
+        else
+            suggested_target="$server_name:443"
+        fi
+        target="$(ask "REALITY target" "$suggested_target")"
     fi
-    address="$(ask "Client address in share link" "$(detect_public_ip || printf '%s' "$server_name")")"
-    port="$(ask "Xray listen port" "443")"
+    address="$(ask "Client address in share link" "${address_default:-$(detect_public_ip || printf '%s' "$server_name")}")"
+    port="$(ask "Xray listen port" "$port_default")"
     switch_reality_vision "$server_name" "$target" "$address" "$port"
     onekey_status_panel
 }
 
 menu_switch_xhttp_reality() {
     require_root
-    local server_name target address path port
-    server_name="$(ask "REALITY serverName/SNI, empty to auto-pick")"
+    local use_current="${1:-0}" server_name target suggested_target address path port
+    local server_default="" target_default="" address_default="" path_default="" port_default="443"
+    if [ "$use_current" = "1" ]; then
+        server_default="$(state_get '.reality.server_name // ""')"
+        target_default="$(state_get '.reality.target // ""')"
+        address_default="$(state_get '.reality.address // .address // ""')"
+        path_default="$(state_get '.xhttp.path // ""')"
+        port_default="$(state_get '.reality.listen_port // 443')"
+    fi
+    server_name="$(ask "REALITY serverName/SNI, empty to auto-pick" "$server_default")"
     if [ -z "$server_name" ]; then
         target="$(setup_resolve_target)"
         server_name="$(reality_target_host "$target")"
     else
-        target="$(ask "REALITY target" "$server_name:443")"
+        if [ "$use_current" = "1" ] && [ "$server_name" = "$server_default" ]; then
+            suggested_target="${target_default:-$server_name:443}"
+        else
+            suggested_target="$server_name:443"
+        fi
+        target="$(ask "REALITY target" "$suggested_target")"
     fi
-    address="$(ask "Client address in share link" "$(detect_public_ip || printf '%s' "$server_name")")"
-    path="$(ask "XHTTP path" "$(generate_path)")"
-    port="$(ask "Xray listen port" "443")"
+    address="$(ask "Client address in share link" "${address_default:-$(detect_public_ip || printf '%s' "$server_name")}")"
+    path="$(ask "XHTTP path" "${path_default:-$(generate_path)}")"
+    port="$(ask "Xray listen port" "$port_default")"
     switch_xhttp_reality "$server_name" "$target" "$address" "$path" "$port"
     onekey_status_panel
 }
 
 menu_switch_reality_self() {
     require_root
-    local domain acme_email address port fallback_port
-    domain="$(ask "REALITY self-steal domain/SNI")"
-    acme_email="$(ask "ACME email for local Caddy TLS" "$(derive_acme_email "$domain")")"
-    address="$(ask "Client address in share link" "$(detect_public_ip || printf '%s' "$domain")")"
-    port="$(ask "Xray public listen port" "443")"
-    fallback_port="$(ask "Local Caddy HTTPS fallback port" "8443")"
+    local use_current="${1:-0}" domain acme_email address port fallback_port
+    local domain_default="" email_default="" address_default="" port_default="443" fallback_default="8443"
+    if [ "$use_current" = "1" ]; then
+        domain_default="$(state_get '.reality.server_name // .domain // ""')"
+        email_default="$(state_get '.acme_email // ""')"
+        address_default="$(state_get '.reality.address // .address // ""')"
+        port_default="$(state_get '.reality.listen_port // 443')"
+        fallback_default="$(state_get '.reality_self.port // 8443')"
+    fi
+    domain="$(ask_required "REALITY self-steal domain/SNI" "$domain_default")"
+    acme_email="$(ask "ACME email for local Caddy TLS" "${email_default:-$(derive_acme_email "$domain")}")"
+    address="$(ask "Client address in share link" "${address_default:-$(detect_public_ip || printf '%s' "$domain")}")"
+    port="$(ask "Xray public listen port" "$port_default")"
+    fallback_port="$(ask "Local Caddy HTTPS fallback port" "$fallback_default")"
     switch_reality_self "$domain" "$acme_email" "$address" "$port" "$fallback_port"
     onekey_status_panel
 }
 
 menu_switch_xhttp_reality_self() {
     require_root
-    local domain acme_email address path port fallback_port
-    domain="$(ask "XHTTP REALITY self-steal domain/SNI")"
-    acme_email="$(ask "ACME email for local Caddy TLS" "$(derive_acme_email "$domain")")"
-    address="$(ask "Client address in share link" "$(detect_public_ip || printf '%s' "$domain")")"
-    path="$(ask "XHTTP path" "$(generate_path)")"
-    port="$(ask "Xray public listen port" "443")"
-    fallback_port="$(ask "Local Caddy HTTPS fallback port" "8443")"
+    local use_current="${1:-0}" domain acme_email address path port fallback_port
+    local domain_default="" email_default="" address_default="" path_default="" port_default="443" fallback_default="8443"
+    if [ "$use_current" = "1" ]; then
+        domain_default="$(state_get '.reality.server_name // .domain // ""')"
+        email_default="$(state_get '.acme_email // ""')"
+        address_default="$(state_get '.reality.address // .address // ""')"
+        path_default="$(state_get '.xhttp.path // ""')"
+        port_default="$(state_get '.reality.listen_port // 443')"
+        fallback_default="$(state_get '.reality_self.port // 8443')"
+    fi
+    domain="$(ask_required "XHTTP REALITY self-steal domain/SNI" "$domain_default")"
+    acme_email="$(ask "ACME email for local Caddy TLS" "${email_default:-$(derive_acme_email "$domain")}")"
+    address="$(ask "Client address in share link" "${address_default:-$(detect_public_ip || printf '%s' "$domain")}")"
+    path="$(ask "XHTTP path" "${path_default:-$(generate_path)}")"
+    port="$(ask "Xray public listen port" "$port_default")"
+    fallback_port="$(ask "Local Caddy HTTPS fallback port" "$fallback_default")"
     switch_xhttp_reality_self "$domain" "$acme_email" "$address" "$path" "$port" "$fallback_port"
     onekey_status_panel
+}
+
+menu_reconfigure_current() {
+    require_root
+    local mode
+    mode="$(state_get '.mode // ""')"
+    case "$mode" in
+        xhttp) menu_switch_xhttp 1 ;;
+        reality|reality-vision|vision|vison) menu_switch_reality 1 ;;
+        xhttp-reality) menu_switch_xhttp_reality 1 ;;
+        reality-self) menu_switch_reality_self 1 ;;
+        xhttp-reality-self) menu_switch_xhttp_reality_self 1 ;;
+        *) die "Current mode is not configured: $mode" ;;
+    esac
 }
 
 menu_user_add() {
@@ -113,8 +176,20 @@ menu_link() {
 }
 
 menu_header() {
+    local mode="" detail=""
     printf '\n%s%s  ONEKEY XRAY + CADDY%s\n' "$c_bold" "$c_cyan" "$c_reset"
-    printf '%s  %s%s\n\n' "$c_dim" "$(ui_repeat '-' 46)" "$c_reset"
+    printf '%s  %s%s\n' "$c_dim" "$(ui_repeat '-' 46)" "$c_reset"
+    if [ -r "$STATE_FILE" ] && jq -e . "$STATE_FILE" >/dev/null 2>&1; then
+        mode="$(jq -r '.mode // ""' "$STATE_FILE")"
+        case "$mode" in
+            reality|reality-vision|vision|vison|reality-self|xhttp-reality|xhttp-reality-self)
+                detail=" | SNI: $(jq -r '.reality.server_name // ""' "$STATE_FILE")"
+                ;;
+        esac
+        printf '  %sCurrent: %s%s%s\n\n' "$c_dim" "$(mode_display_name "$mode")" "$detail" "$c_reset"
+    else
+        printf '\n'
+    fi
 }
 
 menu_body() {
@@ -122,12 +197,13 @@ menu_body() {
   ${c_bold}${c_green}1)${c_reset} One-key setup ${c_dim}(deps + Xray + mode + user + link)${c_reset}
   ${c_bold}2)${c_reset} Install or update Xray
 
-  ${c_dim}-- modes --${c_reset}
-  ${c_bold}3)${c_reset} REALITY + Vision
-  ${c_bold}4)${c_reset} REALITY self-steal + local Caddy
-  ${c_bold}5)${c_reset} XHTTP + Caddy (TLS)
-  ${c_bold}6)${c_reset} XHTTP + REALITY
-  ${c_bold}7)${c_reset} XHTTP + REALITY self-steal + local Caddy
+  ${c_dim}-- configuration --${c_reset}
+  ${c_bold}${c_green}r)${c_reset} Reconfigure current mode ${c_dim}(current values are prefilled)${c_reset}
+  ${c_bold}3)${c_reset} Switch to REALITY + Vision
+  ${c_bold}4)${c_reset} Switch to REALITY self-steal + local Caddy
+  ${c_bold}5)${c_reset} Switch to XHTTP + Caddy (TLS)
+  ${c_bold}6)${c_reset} Switch to XHTTP + REALITY
+  ${c_bold}7)${c_reset} Switch to XHTTP + REALITY self-steal + local Caddy
 
   ${c_dim}-- users --${c_reset}
   ${c_bold}8)${c_reset} Add user           ${c_bold}9)${c_reset} Delete user       ${c_bold}10)${c_reset} List users
@@ -156,6 +232,7 @@ interactive_menu() {
         case "$choice" in
             1) menu_one_key ;;
             2) menu_install ;;
+            r | R | reconfigure | edit) menu_reconfigure_current ;;
             3) menu_switch_reality ;;
             4) menu_switch_reality_self ;;
             5) menu_switch_xhttp ;;

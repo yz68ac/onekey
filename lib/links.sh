@@ -1,5 +1,24 @@
 #!/usr/bin/env bash
 
+LINK_DRIFT_WARNED=0
+
+link_warn_reality_drift() {
+    local mode
+    [ "$LINK_DRIFT_WARNED" -eq 0 ] || return 0
+    mode="$(state_get '.mode // "xhttp"')"
+    case "$mode" in
+        reality|reality-vision|vision|vison|reality-self|xhttp-reality|xhttp-reality-self) ;;
+        *) return 0 ;;
+    esac
+    [ -f "$XRAY_CONFIG" ] || return 0
+    if ! reality_config_matches_state; then
+        warn "OneKey state differs from the active Xray REALITY config; this share link may be invalid."
+        warn "$(reality_config_drift_detail)"
+        warn "Use '$ONEKEY_ENTRY switch ...' or the interactive reconfigure option instead of editing config.json directly."
+    fi
+    LINK_DRIFT_WARNED=1
+}
+
 # build_link <email> -> the raw vless:// URL on stdout, nothing else.
 build_link() {
     local email="$1" mode uuid label encoded_label
@@ -78,6 +97,7 @@ link_show() {
     fi
     [ -n "$email" ] || die "Usage: $ONEKEY_ENTRY link email"
 
+    link_warn_reality_drift
     link="$(build_link "$email")"
 
     if [ "$raw" -eq 1 ]; then

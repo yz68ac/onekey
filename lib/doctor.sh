@@ -112,6 +112,20 @@ doctor_check_xray() {
     fi
 }
 
+doctor_check_state_config_sync() {
+    local mode="$1"
+    case "$mode" in
+        reality|reality-vision|vision|vison|reality-self|xhttp-reality|xhttp-reality-self) ;;
+        *) return 0 ;;
+    esac
+    [ -f "$XRAY_CONFIG" ] || return 0
+    if reality_config_matches_state; then
+        doctor_emit pass "config-sync" "OneKey state matches the Xray REALITY configuration"
+    else
+        doctor_emit warn "config-sync" "$(reality_config_drift_detail)"
+    fi
+}
+
 doctor_check_caddy() {
     local required="$1"
     if ! have_cmd caddy; then
@@ -283,6 +297,7 @@ doctor_command() {
 
     doctor_check_operation_lock
     doctor_check_xray
+    [ "$state_ok" -eq 0 ] || doctor_check_state_config_sync "$mode"
     doctor_check_caddy "$caddy_required"
     doctor_check_services "$caddy_required"
     [ "$state_ok" -eq 0 ] || doctor_check_network "$mode"

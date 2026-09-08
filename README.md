@@ -213,6 +213,8 @@ sudo ./xrayctl.sh link alice@example.com --raw   # 只输出裸链接，方便�
 sudo ./xrayctl.sh link all
 ```
 
+分享链接从 `/etc/onekey-xray/state.json` 和 `users.json` 生成。不要直接修改 Xray `config.json`；使用交互菜单中的 `r) Reconfigure current mode`（自动预填当前值）或 `xrayctl switch ...`，这样状态、Xray 配置和分享链接会一起更新。若两者已经不一致，`link` 会警告，`doctor` 会报告 `config-sync`。
+
 服务管理：
 
 ```bash
@@ -279,6 +281,7 @@ sudo ./caddy-onekey.sh --mode reality-self --domain www.example.com --email admi
 - `reality-self` / `xhttp-reality-self` 拿不到证书：这两个模式下 Xray 占着公网 443，Caddy 只能走 HTTP-01，所以公网 80 必须可达，域名也必须已经解析到本机。一键流程会在切换前做一次解析检查，不匹配只警告不阻断；直接用 `switch` 子命令则不做这个检查。
 - 二维码在终端里糊成一团：终端窗口太窄导致换行，拉宽窗口重跑 `xrayctl link <email>`，或者用 `--raw` 取裸链接自己贴到客户端。
 - 想把输出写进日志：`xrayctl link alice@example.com --raw` 或加 `NO_COLOR=1`，避免 ANSI 转义混进文件。
+- `link` 提示状态与 Xray 配置不一致：运行 `sudo xrayctl` 后选择 `r) Reconfigure current mode`，确认或修改预填值；不要继续手改 `config.json`。
 
 ## 本地测试
 

@@ -219,6 +219,8 @@ sudo ./xrayctl.sh link alice@example.com --raw   # raw link only, suitable for p
 sudo ./xrayctl.sh link all
 ```
 
+Share links are generated from `/etc/onekey-xray/state.json` and `users.json`. Do not edit Xray's `config.json` directly; use `r) Reconfigure current mode` in the interactive menu (current values are prefilled) or `xrayctl switch ...` so state, Xray configuration, and links change together. If they drift, `link` warns and `doctor` reports `config-sync`.
+
 Service management:
 
 ```bash
@@ -285,6 +287,7 @@ Run `sudo xrayctl doctor` first. Use `sudo xrayctl doctor --offline` to inspect 
 - `reality-self` / `xhttp-reality-self` cannot obtain a certificate: Xray owns public 443, so Caddy must use HTTP-01. Public port 80 must be reachable and the domain must already resolve to this server. Guided setup performs a non-blocking DNS check; direct `switch` commands do not.
 - QR code wraps into unreadable output: widen the terminal and run `xrayctl link <email>` again, or use `--raw`.
 - Writing links to a log: use `xrayctl link alice@example.com --raw` or set `NO_COLOR=1` to avoid ANSI escapes.
+- `link` warns that OneKey state differs from Xray: run `sudo xrayctl`, choose `r) Reconfigure current mode`, and confirm or edit the prefilled values instead of editing `config.json` again.
 
 ## Local tests
 
