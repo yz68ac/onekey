@@ -170,7 +170,46 @@ doctor_check_services() {
         else
             doctor_emit fail "service:caddy" "required by the current mode but not running"
         fi
+    elif systemctl is-enabled --quiet "$CADDY_SERVICE" 2>/dev/null; then
+        doctor_emit warn "caddy-boot" "Caddy is enabled but unused by this mode; it may take ports from Xray at boot (systemctl disable --now caddy)"
     fi
+}
+
+doctor_check_port() {
+    local name="$1" port="$2" want_owner="$3" owner
+    if port_listening "$port"; then
+        owner="$(port_owner "$port")"
+        if [ -n "$owner" ] && [ "$owner" != "$want_owner" ]; then
+            doctor_emit fail "$name" "port $port is held by $owner, expected $want_owner"
+        else
+            doctor_emit pass "$name" "port $port is listening"
+        fi
+    else
+        doctor_emit fail "$name" "nothing is listening on port $port"
+    fi
+}
+
+# Running services are not enough: a half-applied change can leave Xray
+# running an old configuration on the wrong port.
+doctor_check_listeners() {
+    local mode="$1"
+    have_cmd ss || {
+        doctor_emit warn "listeners" "ss is missing; cannot verify listening ports"
+        return
+    }
+    case "$mode" in
+        xhttp)
+            doctor_check_port "listen:xray" "$(jq -r '.xhttp.port // 10000' "$STATE_FILE")" xray
+            doctor_check_port "listen:caddy" 443 caddy
+            ;;
+        reality-self | xhttp-reality-self)
+            doctor_check_port "listen:xray" "$(jq -r '.reality.listen_port // 443' "$STATE_FILE")" xray
+            doctor_check_port "listen:caddy" "$(jq -r '.reality_self.port // 8443' "$STATE_FILE")" caddy
+            ;;
+        *)
+            doctor_check_port "listen:xray" "$(jq -r '.reality.listen_port // 443' "$STATE_FILE")" xray
+            ;;
+    esac
 }
 
 doctor_check_network() {
@@ -236,7 +275,7 @@ doctor_check_operation_lock() {
     if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
         doctor_emit fail "operation-lock" "another xrayctl operation is active (pid $pid)"
     else
-        doctor_emit warn "operation-lock" "stale lock detected; the next write operation will remove it"
+        doctor_emit warn "operation-lock" "stale lock: a previous operation was killed mid-way; re-apply with '$ONEKEY_ENTRY' -> r) Reconfigure"
     fi
 }
 
@@ -300,6 +339,7 @@ doctor_command() {
     [ "$state_ok" -eq 0 ] || doctor_check_state_config_sync "$mode"
     doctor_check_caddy "$caddy_required"
     doctor_check_services "$caddy_required"
+    [ "$state_ok" -eq 0 ] || doctor_check_listeners "$mode"
     [ "$state_ok" -eq 0 ] || doctor_check_network "$mode"
     doctor_check_logs
 

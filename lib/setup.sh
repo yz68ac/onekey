@@ -170,10 +170,14 @@ setup_ensure_user() {
 }
 
 setup_warn_port() {
-    local port="$1" what="$2"
-    if port_in_use "$port"; then
-        ui_bad "port $port is already in use; $what may fail to bind"
-    fi
+    local port="$1" what="$2" owner
+    port_in_use "$port" || return 0
+    owner="$(port_owner "$port")"
+    case "$owner" in
+        # Our own services get restarted/reconfigured, so they free the port.
+        xray | caddy) return 0 ;;
+    esac
+    ui_bad "port $port is already in use${owner:+ by $owner}; $what may fail to bind"
 }
 
 setup_collect_domain() {
@@ -284,8 +288,14 @@ service_state() {
     }
     if systemctl is-active --quiet "$unit" 2>/dev/null; then
         printf 'running\n'
-    elif systemctl list-unit-files 2>/dev/null | grep -q "^${unit}\.service"; then
-        printf 'stopped\n'
+    elif systemctl cat "$unit" >/dev/null 2>&1; then
+        # Not `list-unit-files | grep -q`: grep exits early and pipefail
+        # turns systemctl's SIGPIPE into a false "not installed".
+        if systemctl is-enabled --quiet "$unit" 2>/dev/null; then
+            printf 'stopped\n'
+        else
+            printf 'stopped, disabled\n'
+        fi
     else
         printf 'not installed\n'
     fi

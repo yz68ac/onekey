@@ -1,22 +1,9 @@
 #!/usr/bin/env bash
 
+XRAY_INSTALLER_URL="${XRAY_INSTALLER_URL:-https://github.com/XTLS/Xray-install/raw/main/install-release.sh}"
+
 install_dependencies() {
     ensure_base_deps
-}
-
-ensure_xray_user() {
-    if id "$XRAY_RUN_USER" >/dev/null 2>&1; then
-        return 0
-    fi
-
-    info "Creating system user for Xray: $XRAY_RUN_USER"
-    if have_cmd useradd; then
-        useradd --system --user-group --no-create-home --shell /usr/sbin/nologin "$XRAY_RUN_USER"
-    elif have_cmd adduser; then
-        adduser --system --no-create-home --disabled-login --group "$XRAY_RUN_USER"
-    else
-        die "useradd or adduser is required to create $XRAY_RUN_USER"
-    fi
 }
 
 xray_service_user() {
@@ -24,23 +11,37 @@ xray_service_user() {
     systemctl show -p User --value "$XRAY_SERVICE" 2>/dev/null
 }
 
-install_xray() {
-    ensure_xray_user
+# The official installer (since Xray-install#123, 2026-10) always creates and
+# runs the service as its own dedicated `xray` account; the old
+# --install-user option no longer exists. Do not pre-create the account here:
+# the installer warns when it has to reuse an existing one.
+run_official_xray_installer() {
+    local script
     need_cmd curl
+    script="$(curl -fsSL --retry 3 --retry-connrefused "$XRAY_INSTALLER_URL")" ||
+        die "Failed to download the official Xray installer: $XRAY_INSTALLER_URL"
+    bash -c "$script" @ install "$@"
+}
+
+install_xray() {
     if [ -x "$XRAY_BIN" ]; then
-        info "Reinstalling Xray to refresh the official systemd service user"
-        bash -c "$(curl -fsSL --retry 3 --retry-connrefused https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --reinstall --install-user "$XRAY_RUN_USER"
+        # --reinstall would reinstall the *current* version, which can never
+        # lift an outdated binary over the supported baseline. -f installs the
+        # latest stable release and rewrites the official systemd unit.
+        info "Updating Xray to the latest stable release and refreshing its systemd service"
+        run_official_xray_installer -f
     else
         info "Installing Xray with the official XTLS installer"
-        bash -c "$(curl -fsSL --retry 3 --retry-connrefused https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install --install-user "$XRAY_RUN_USER"
+        run_official_xray_installer
     fi
+    id "$XRAY_RUN_USER" >/dev/null 2>&1 ||
+        die "The official installer did not create the '$XRAY_RUN_USER' account (set XRAY_RUN_USER only if upstream changes its account name)"
 }
 
 # Skip the (slow) reinstall when Xray is already present and the official
 # systemd unit already runs as the dedicated user.
 install_xray_if_needed() {
     local installed_version="" final_version=""
-    ensure_xray_user
     if [ -x "$XRAY_BIN" ]; then
         installed_version="$(xray_version_number || true)"
     fi
@@ -51,7 +52,7 @@ install_xray_if_needed() {
         return 0
     fi
     if [ -n "$installed_version" ]; then
-        ui_note "updating Xray $installed_version to the supported stable baseline ($ONEKEY_MIN_XRAY_VERSION+)"
+        ui_note "updating Xray $installed_version to the latest stable release (baseline $ONEKEY_MIN_XRAY_VERSION+)"
     fi
     install_xray
     final_version="$(xray_version_number || true)"
@@ -72,12 +73,10 @@ install_all() {
         die "Installed Xray version ${final_version:-unknown} is below $ONEKEY_MIN_XRAY_VERSION"
     init_state_files
     transaction_begin
-    apply_xray_config
     if have_cmd systemctl; then
         systemctl enable "$XRAY_SERVICE" >/dev/null 2>&1 || true
-        systemctl restart "$XRAY_SERVICE"
-        systemctl is-active --quiet "$XRAY_SERVICE" || die "$XRAY_SERVICE did not become active after restart"
     fi
+    apply_xray_config_and_restart
     transaction_commit
     ok "Initialized xrayctl state and restarted Xray"
     info "Next: run '$ONEKEY_ENTRY setup' for the guided one-key flow"

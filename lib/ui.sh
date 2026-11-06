@@ -128,7 +128,10 @@ ui_qr() {
         fi
     fi
     printf '\n'
-    qrencode -t ANSIUTF8 -m 1 -l L "$text" 2>/dev/null ||
-        qrencode -t UTF8 -m 1 -l L "$text" 2>/dev/null ||
+    # ANSI colours only when ui_init enabled them (a terminal, no NO_COLOR).
+    if [ -n "$c_reset" ] && qrencode -t ANSIUTF8 -m 1 -l L "$text" 2>/dev/null; then
+        return 0
+    fi
+    qrencode -t UTF8 -m 1 -l L "$text" 2>/dev/null ||
         printf '%s(QR generation failed)%s\n' "$c_dim" "$c_reset"
 }

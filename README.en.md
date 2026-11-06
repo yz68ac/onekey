@@ -106,9 +106,10 @@ The `/usr/local/bin/xrayctl` shortcut is created by `setup`. If that path alread
 
 ## Service users
 
-- Xray: the script creates an `xray` system user and invokes the official installer with `--install-user xray`.
-- `setup` checks both the systemd unit's `User=` value and the installed Xray version. It skips reinstallation only when the user is correct and the version meets the supported baseline; otherwise it refreshes Xray from the official stable channel.
-- The `install` command always uses `--reinstall --install-user xray` to refresh the official systemd service. Use it when the runtime user must be corrected explicitly.
+- Xray: the official installer creates the dedicated `xray` system user and runs the systemd service as it (upstream removed the old `--install-user` option in October 2026).
+- `setup` checks both the systemd unit's `User=` value and the installed Xray version. It skips reinstallation only when the user is correct and the version meets the supported baseline; otherwise it updates Xray to the latest official stable release.
+- The `install` command always force-installs the latest stable release (`install -f`), which also rewrites the official systemd service. Use it when the runtime user must be corrected explicitly.
+- Direct REALITY modes (`reality`, `xhttp-reality`) stop **and disable** Caddy so it cannot take port 443 from Xray after a reboot; Caddy modes enable it again.
 - Caddy: the official apt package owns the service user and systemd unit, normally using the `caddy` user.
 
 ## Manual usage

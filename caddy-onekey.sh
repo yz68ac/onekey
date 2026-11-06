@@ -199,8 +199,6 @@ $domain {
 
     root * $site_root
     file_server
-
-    respond /health "ok" 200
 }
 EOF
 
@@ -225,8 +223,6 @@ http://$domain {
 
     root * $site_root
     file_server
-
-    respond /health "ok" 200
 }
 
 https://$domain:$fallback_port {
@@ -236,8 +232,6 @@ https://$domain:$fallback_port {
 
     root * $site_root
     file_server
-
-    respond /health "ok" 200
 }
 EOF
 

@@ -20,13 +20,24 @@ export XRAY_BIN="$TEST_TMP/bin/xray"
 export PATH="$TEST_TMP/bin:$PATH"
 mkdir -p "$TEST_TMP/bin"
 
-cat > "$TEST_TMP/bin/jq" <<'EOF'
+# Use the real jq when present. Otherwise install a validation-only stand-in
+# (needs Python) so the non-jq code paths can still be exercised.
+TEST_PYTHON="$(command -v python3 || command -v python || true)"
+export TEST_PYTHON
+if ! command -v jq >/dev/null 2>&1; then
+    [ -n "$TEST_PYTHON" ] || {
+        printf 'tests/run.sh needs jq or Python\n' >&2
+        exit 1
+    }
+    cat > "$TEST_TMP/bin/jq" <<'EOF'
 #!/usr/bin/env bash
 set -u
 file="${*: -1}"
 [ -f "$file" ] || exit 1
-python -X utf8 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$file"
+"$TEST_PYTHON" -X utf8 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$file"
 EOF
+    chmod +x "$TEST_TMP/bin/jq"
+fi
 
 cat > "$XRAY_BIN" <<'EOF'
 #!/usr/bin/env bash
@@ -55,7 +66,7 @@ case "${1:-}" in
         ;;
 esac
 EOF
-chmod +x "$TEST_TMP/bin/jq" "$XRAY_BIN"
+chmod +x "$XRAY_BIN"
 
 # shellcheck source=../lib/common.sh
 . "$TEST_ROOT/lib/common.sh"
@@ -181,7 +192,12 @@ printf 'new-caddy\n' > "$CADDYFILE"
 printf 'new-logrotate\n' > "$XRAY_LOGROTATE_FILE"
 transaction_rollback
 
-assert_eq "rollback state" "xhttp" "$(python -X utf8 -c 'import json,sys; print(json.load(open(sys.argv[1]))["mode"])' "$STATE_FILE")"
+if [ -x "$TEST_TMP/bin/jq" ]; then
+    rollback_mode="$("$TEST_PYTHON" -X utf8 -c 'import json,sys; print(json.load(open(sys.argv[1]))["mode"])' "$STATE_FILE")"
+else
+    rollback_mode="$(jq -r .mode "$STATE_FILE")"
+fi
+assert_eq "rollback state" "xhttp" "$rollback_mode"
 assert_eq "rollback users" '{"users":[]}' "$(tr -d '\r\n ' < "$USERS_FILE")"
 assert_eq "rollback Xray config" "old-xray" "$(tr -d '\r\n' < "$XRAY_CONFIG")"
 assert_eq "rollback Caddyfile" "old-caddy" "$(tr -d '\r\n' < "$CADDYFILE")"

@@ -3,6 +3,11 @@ name: test
 on:
   push:
   pull_request:
+  workflow_dispatch:
+  # Upstream (the official Xray installer, Xray-core, Caddy) changes under us;
+  # a weekly real install catches breakage that mocked tests cannot.
+  schedule:
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
@@ -12,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check shell syntax
         shell: bash
         run: |
@@ -26,3 +31,20 @@ jobs:
           command -v jq >/dev/null || sudo apt-get install -y jq
       - name: Test configuration rendering
         run: REQUIRE_JQ=1 bash tests/render.sh
+
+  # Real install against the live official Xray installer on a systemd VM.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [reality, xhttp-reality]
+    steps:
+      - uses: actions/checkout@v7
+      - name: One-key setup (${{ matrix.mode }})
+        run: sudo ./xrayctl.sh setup --mode "${{ matrix.mode }}" -y
+      - name: Doctor
+        run: sudo ./xrayctl.sh doctor --offline
+      - name: Share link
+        run: sudo ./xrayctl.sh link --raw

@@ -98,6 +98,18 @@ Runtime paths:
 EOF
 }
 
+# The share-link address for direct REALITY modes must be this server, never
+# the serverName (that is the camouflage site, not us).
+default_client_address() {
+    local ip
+    if ip="$(detect_public_ip)"; then
+        info "Using detected public address for share links: $ip (override with --address)" >&2
+        printf '%s\n' "$ip"
+        return 0
+    fi
+    die "Could not detect this server's public address; pass --address"
+}
+
 parse_switch_xhttp() {
     local domain="" acme_email="" path="" port=""
 
@@ -181,7 +193,7 @@ parse_switch_reality() {
 
     [ -n "$server_name" ] || die "--server-name is required"
     [ -n "$target" ] || die "--target is required"
-    address="${address:-$server_name}"
+    address="${address:-$(default_client_address)}"
 
     switch_reality_vision "$server_name" "$target" "$address" "$port"
 }
@@ -228,7 +240,7 @@ parse_switch_xhttp_reality() {
 
     [ -n "$server_name" ] || die "--server-name is required"
     [ -n "$target" ] || die "--target is required"
-    address="${address:-$server_name}"
+    address="${address:-$(default_client_address)}"
     path="${path:-$(generate_path)}"
 
     switch_xhttp_reality "$server_name" "$target" "$address" "$path" "$port"

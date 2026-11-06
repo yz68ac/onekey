@@ -223,15 +223,8 @@ pick_reality_target() {
 
 port_in_use() {
     local port="$1"
-    if have_cmd ss; then
-        ss -Hltn "sport = :$port" 2>/dev/null | grep -q . && return 0
-        return 1
-    fi
-    if have_cmd netstat; then
-        netstat -ltn 2>/dev/null | awk '{print $4}' | grep -qE "[:.]$port\$" && return 0
-        return 1
-    fi
-    return 1
+    { have_cmd ss || have_cmd netstat; } || return 1
+    port_listening "$port"
 }
 
 check_domain_points_here() {

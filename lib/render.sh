@@ -81,6 +81,11 @@ render_xhttp_config() {
                             host: ($state[0].domain // ""),
                             path: ($state[0].xhttp.path // "/xhttp"),
                             mode: "auto"
+                        },
+                        sockopt: {
+                            # Loopback-only inbound behind Caddy, which
+                            # replaces any client-supplied X-Forwarded-For.
+                            trustedXForwardedFor: ["X-Forwarded-For"]
                         }
                     },
                     sniffing: {
@@ -346,7 +351,6 @@ install_xray_logrotate() {
     notifempty
     compress
     delaycompress
-    su $XRAY_RUN_USER $xray_group
     create 0600 $XRAY_RUN_USER $xray_group
     sharedscripts
     postrotate
@@ -386,15 +390,63 @@ apply_xray_config() {
     else
         install -m 0600 "$rendered" "$XRAY_CONFIG"
     fi
+    prune_old_files "$RENDERED_DIR" 'config.*.json'
     ok "Wrote Xray config: $XRAY_CONFIG"
 }
 
+# Port the main Xray inbound must be listening on for the current mode.
+xray_expected_port() {
+    case "$(state_get '.mode // "xhttp"')" in
+        xhttp) state_get '.xhttp.port // 10000' ;;
+        *) state_get '.reality.listen_port // 443' ;;
+    esac
+}
+
+# A unit can report "active" for a moment before Xray fails to bind its port
+# and exits, so wait for the listener itself before declaring success.
+wait_xray_ready() {
+    local port="$1" i owner
+    for i in $(seq 1 20); do
+        if systemctl is-active --quiet "$XRAY_SERVICE" && port_listening "$port"; then
+            # Another program may already hold the port: it must be Xray's.
+            owner="$(port_owner "$port")"
+            if [ -z "$owner" ] || [ "$owner" = "xray" ]; then
+                sleep 1
+                systemctl is-active --quiet "$XRAY_SERVICE" && return 0
+            fi
+        fi
+        sleep 0.5
+    done
+    warn "Recent $XRAY_SERVICE log:"
+    journalctl -u "$XRAY_SERVICE" -n 8 --no-pager 2>/dev/null | sed 's/^/    /' >&2 || true
+    return 1
+}
+
 apply_xray_config_and_restart() {
+    local port
     apply_xray_config
     if have_cmd systemctl; then
+        port="$(xray_expected_port)"
+        systemctl reset-failed "$XRAY_SERVICE" >/dev/null 2>&1 || true
         systemctl restart "$XRAY_SERVICE"
-        systemctl is-active --quiet "$XRAY_SERVICE" || die "$XRAY_SERVICE did not become active after restart"
-        ok "Restarted $XRAY_SERVICE"
+        wait_xray_ready "$port" ||
+            die "$XRAY_SERVICE is not listening on port $port after restart (port taken by another program?)"
+        ok "Restarted $XRAY_SERVICE (listening on port $port)"
+    fi
+}
+
+# Caddy is not used by the direct REALITY modes. Stopping it is not enough:
+# if it stays enabled it races Xray for port 443 on the next boot.
+caddy_stop_and_disable() {
+    local port="$1" why="$2"
+    have_cmd systemctl || return 0
+    if systemctl is-active --quiet "$CADDY_SERVICE" 2>/dev/null; then
+        warn "Stopping Caddy because $why uses port $port directly"
+    fi
+    if systemctl is-enabled --quiet "$CADDY_SERVICE" 2>/dev/null ||
+        systemctl is-active --quiet "$CADDY_SERVICE" 2>/dev/null; then
+        systemctl disable --now "$CADDY_SERVICE" >/dev/null 2>&1 ||
+            systemctl stop "$CADDY_SERVICE" || true
     fi
 }
 
@@ -444,10 +496,7 @@ switch_reality_vision() {
     validate_short_id "$short_id" || die "Invalid generated shortId"
 
     transaction_begin
-    if have_cmd systemctl && systemctl is-active --quiet "$CADDY_SERVICE" 2>/dev/null; then
-        warn "Stopping Caddy because REALITY/Vision uses port $port directly"
-        systemctl stop "$CADDY_SERVICE" || true
-    fi
+    caddy_stop_and_disable "$port" "REALITY/Vision"
 
     state_set_reality "$server_name" "$target" "$address" "$port" "$private_key" "$public_key" "$short_id"
     apply_xray_config_and_restart
@@ -484,10 +533,7 @@ switch_xhttp_reality() {
     validate_short_id "$short_id" || die "Invalid generated shortId"
 
     transaction_begin
-    if have_cmd systemctl && systemctl is-active --quiet "$CADDY_SERVICE" 2>/dev/null; then
-        warn "Stopping Caddy because XHTTP + REALITY uses port $port directly"
-        systemctl stop "$CADDY_SERVICE" || true
-    fi
+    caddy_stop_and_disable "$port" "XHTTP + REALITY"
 
     state_set_xhttp_reality "$server_name" "$target" "$address" "$path" "$port" "$private_key" "$public_key" "$short_id"
     apply_xray_config_and_restart

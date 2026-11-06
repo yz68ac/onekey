@@ -102,6 +102,13 @@ for mode in xhttp reality-vision xhttp-reality reality-self xhttp-reality-self; 
     assert_jq "$mode online stats" "$output" '.policy.levels["0"].statsUserOnline == true'
     assert_jq "$mode API is loopback" "$output" '.inbounds[0].listen == "127.0.0.1"'
     assert_jq "$mode has one user" "$output" '.inbounds[1].settings.clients | length == 1'
+    if [ "$mode" = "xhttp" ]; then
+        assert_jq "xhttp trusts X-Forwarded-For from local Caddy" "$output" \
+            '.inbounds[1].listen == "127.0.0.1" and .inbounds[1].streamSettings.sockopt.trustedXForwardedFor == ["X-Forwarded-For"]'
+    else
+        assert_jq "$mode does not trust X-Forwarded-For on a public inbound" "$output" \
+            '.inbounds[1].streamSettings.sockopt == null'
+    fi
 done
 
 cp "$output" "$XRAY_CONFIG"

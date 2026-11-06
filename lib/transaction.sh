@@ -20,7 +20,9 @@ transaction_lock_acquire() {
         die "Another xrayctl operation is running (pid $pid)"
     fi
 
-    warn "Removing stale OneKey operation lock"
+    warn "Removing stale OneKey operation lock: a previous operation (pid ${pid:-unknown}) died without cleaning up."
+    warn "This run rewrites the configuration from state; afterwards check '$ONEKEY_ENTRY doctor'."
+    find "$ONEKEY_STATE_DIR" -maxdepth 1 -type d -name '.txn.*' -exec rm -rf -- {} + 2>/dev/null || true
     rm -f -- "$TRANSACTION_LOCK_DIR/pid"
     rmdir "$TRANSACTION_LOCK_DIR" 2>/dev/null || die "Cannot remove stale lock: $TRANSACTION_LOCK_DIR"
     mkdir "$TRANSACTION_LOCK_DIR"
@@ -93,6 +95,9 @@ transaction_restore_service() {
     local unit="$1" wanted="$2" config_changed="${3:-0}" active=0
     have_cmd systemctl || return 0
     systemctl is-active --quiet "$unit" 2>/dev/null && active=1
+    # A unit that crash-looped hits systemd's start limit and refuses
+    # restarts until its failed state is cleared.
+    systemctl reset-failed "$unit" >/dev/null 2>&1 || true
     if [ "$wanted" = "1" ]; then
         if [ "$active" = "0" ] || [ "$config_changed" = "1" ]; then
             systemctl restart "$unit" >/dev/null 2>&1 ||
@@ -112,13 +117,53 @@ transaction_cleanup() {
     transaction_lock_release
 }
 
+transaction_service_enabled() {
+    local unit="$1"
+    if have_cmd systemctl && systemctl is-enabled --quiet "$unit" 2>/dev/null; then
+        printf '1\n'
+    else
+        printf '0\n'
+    fi
+}
+
+transaction_restore_enabled() {
+    local unit="$1" wanted="$2"
+    have_cmd systemctl || return 0
+    systemctl cat "$unit" >/dev/null 2>&1 || return 0
+    if [ "$wanted" = "1" ]; then
+        systemctl enable "$unit" >/dev/null 2>&1 || true
+    else
+        systemctl disable "$unit" >/dev/null 2>&1 || true
+    fi
+}
+
 transaction_exit_handler() {
     local status="$1"
-    trap - EXIT
+    trap - EXIT HUP INT TERM PIPE
     if [ "$TRANSACTION_ACTIVE" -eq 1 ]; then
         transaction_rollback || true
     fi
     exit "$status"
+}
+
+# A dropped SSH session (HUP), Ctrl-C (INT), kill (TERM) or a closed output
+# pipe (PIPE) must still roll back. Once the terminal or pipe is gone, any
+# message written during the rollback would kill the shell again half-way, so
+# ignore further signals and send output to the log instead.
+transaction_signal_handler() {
+    local sig="$1" code="$2"
+    trap '' HUP INT TERM PIPE
+    case "$sig" in
+        HUP | PIPE)
+            exec >>"$ONEKEY_STATE_DIR/interrupted.log" 2>&1 </dev/null || exec >/dev/null 2>&1 </dev/null
+            printf '%s: operation interrupted by SIG%s\n' "$(date '+%F %T')" "$sig"
+            ;;
+        *)
+            printf '\n' >&2
+            warn "Interrupted by SIG$sig"
+            ;;
+    esac
+    exit "$code"
 }
 
 transaction_begin() {
@@ -140,10 +185,15 @@ transaction_begin() {
     transaction_capture_file "$CADDYFILE" caddyfile
     transaction_service_active "$XRAY_SERVICE" > "$TRANSACTION_DIR/xray.active"
     transaction_service_active "$CADDY_SERVICE" > "$TRANSACTION_DIR/caddy.active"
+    transaction_service_enabled "$CADDY_SERVICE" > "$TRANSACTION_DIR/caddy.enabled"
 
     TRANSACTION_ACTIVE=1
     TRANSACTION_DEPTH=1
     trap 'transaction_exit_handler $?' EXIT
+    trap 'transaction_signal_handler HUP 129' HUP
+    trap 'transaction_signal_handler INT 130' INT
+    trap 'transaction_signal_handler TERM 143' TERM
+    trap 'transaction_signal_handler PIPE 141' PIPE
 }
 
 transaction_commit() {
@@ -151,7 +201,7 @@ transaction_commit() {
     TRANSACTION_DEPTH=$((TRANSACTION_DEPTH - 1))
     [ "$TRANSACTION_DEPTH" -le 0 ] || return 0
 
-    trap - EXIT
+    trap - EXIT HUP INT TERM PIPE
     TRANSACTION_ACTIVE=0
     TRANSACTION_DEPTH=0
     transaction_cleanup
@@ -173,6 +223,9 @@ transaction_rollback() {
     transaction_restore_file "$XRAY_CONFIG" xray-config
     transaction_restore_file "$CADDYFILE" caddyfile
 
+    if [ -f "$TRANSACTION_DIR/caddy.enabled" ]; then
+        transaction_restore_enabled "$CADDY_SERVICE" "$(cat "$TRANSACTION_DIR/caddy.enabled")"
+    fi
     transaction_restore_service "$XRAY_SERVICE" "$(cat "$TRANSACTION_DIR/xray.active" 2>/dev/null || printf '0')" "$xray_changed"
     transaction_restore_service "$CADDY_SERVICE" "$(cat "$TRANSACTION_DIR/caddy.active" 2>/dev/null || printf '0')" "$caddy_changed"
     transaction_cleanup

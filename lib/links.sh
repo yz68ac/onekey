@@ -66,7 +66,7 @@ build_link() {
             [ -n "$address" ] || die "No client address configured for reality mode"
             [ -n "$server_name" ] || die "No REALITY serverName configured"
             [ -n "$public_key" ] || die "No REALITY public key configured"
-            printf 'vless://%s@%s:%s?encryption=none&type=raw&security=reality&sni=%s&pbk=%s&sid=%s&spx=%s&fp=chrome&flow=xtls-rprx-vision#%s\n' \
+            printf 'vless://%s@%s:%s?encryption=none&type=tcp&security=reality&sni=%s&pbk=%s&sid=%s&spx=%s&fp=chrome&flow=xtls-rprx-vision#%s\n' \
                 "$uuid" "$(format_host "$address")" "$port" "$server_name" "$public_key" "$short_id" "$encoded_spider" "$encoded_label"
             ;;
         *)

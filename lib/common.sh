@@ -19,7 +19,7 @@ XRAY_LOGROTATE_FILE="${XRAY_LOGROTATE_FILE:-/etc/logrotate.d/onekey-xray}"
 
 API_HOST_DEFAULT="127.0.0.1"
 API_PORT_DEFAULT="32768"
-ONEKEY_VERSION="${ONEKEY_VERSION:-0.2.1}"
+ONEKEY_VERSION="${ONEKEY_VERSION:-0.2.2}"
 export ONEKEY_VERSION
 ONEKEY_MIN_XRAY_VERSION="${ONEKEY_MIN_XRAY_VERSION:-26.3.27}"
 
@@ -141,11 +141,46 @@ replace_private_file() {
     chmod 600 "$dest"
 }
 
+ONEKEY_KEEP_FILES="${ONEKEY_KEEP_FILES:-20}"
+
+# prune_old_files <dir> <glob>: keep only the newest ONEKEY_KEEP_FILES matches.
+prune_old_files() {
+    local dir="$1" pattern="$2"
+    [ -d "$dir" ] || return 0
+    find "$dir" -maxdepth 1 -type f -name "$pattern" -printf '%T@ %p\n' 2>/dev/null |
+        sort -rn | tail -n +"$((ONEKEY_KEEP_FILES + 1))" | cut -d' ' -f2- |
+        while IFS= read -r old; do rm -f -- "$old"; done
+}
+
 backup_file() {
-    local file="$1"
+    local file="$1" name
     [ -f "$file" ] || return 0
     mkdir -p "$BACKUP_DIR"
-    cp -a "$file" "$BACKUP_DIR/$(basename "$file").$(timestamp).bak"
+    name="$(basename "$file")"
+    cp -a "$file" "$BACKUP_DIR/$name.$(timestamp).bak"
+    prune_old_files "$BACKUP_DIR" "$name.*.bak"
+}
+
+# port_listening <port>: true when something listens on the TCP port. When no
+# inspection tool exists, assume yes so callers fall back to service state.
+port_listening() {
+    local port="$1"
+    # Capture output instead of piping into `grep -q`, which under pipefail
+    # can fail on the producer's SIGPIPE.
+    if have_cmd ss; then
+        [ -n "$(ss -Hltn "sport = :$port" 2>/dev/null)" ]
+    elif have_cmd netstat; then
+        [ -n "$(netstat -ltn 2>/dev/null | awk -v p="$port" '$4 ~ ("[:.]" p "$")')" ]
+    else
+        return 0
+    fi
+}
+
+# Name of the process listening on a TCP port, empty when unknown.
+port_owner() {
+    local port="$1"
+    have_cmd ss || return 0
+    ss -Hltnp "sport = :$port" 2>/dev/null | sed -n 's/.*users:(("\([^"]*\)".*/\1/p' | head -n 1
 }
 
 bytes_human() {

@@ -105,9 +105,10 @@ sudo xrayctl bbr status               # 查看 BBR 状态
 
 ## 服务用户
 
-- Xray：脚本会创建 `xray` 系统用户，并调用官方安装脚本的 `--install-user xray`，让 systemd 服务以专属用户运行。
-- `setup` 会同时检查 systemd unit 的 `User=` 和 Xray 版本：运行用户正确且版本不低于当前支持基线时跳过重装，否则自动刷新到官方稳定版本。
-- `install` 子命令始终强制走 `--reinstall --install-user xray` 刷新官方 systemd service。官方安装器在版本未变化时可能直接退出而不改运行用户，所以想强制纠正运行用户时用 `install` 而不是 `setup`。
+- Xray：官方安装脚本会自行创建专属的 `xray` 系统用户，并让 systemd 服务以该用户运行（上游已于 2026 年 10 月移除旧的 `--install-user` 参数）。
+- `setup` 会同时检查 systemd unit 的 `User=` 和 Xray 版本：运行用户正确且版本不低于当前支持基线时跳过重装，否则自动更新到官方最新稳定版本。
+- `install` 子命令始终强制安装最新稳定版（`install -f`），同时重写官方 systemd service。官方安装器在版本未变化时会直接退出，所以想强制纠正运行用户时用 `install` 而不是 `setup`。
+- 直连 REALITY 模式（`reality`、`xhttp-reality`）会停止**并禁用** Caddy，避免重启后 Caddy 抢占 Xray 的 443 端口；切回 Caddy 模式时会重新启用。
 - Caddy：脚本使用 Caddy 官方 apt 包安装，服务用户和 systemd unit 交给官方包维护，通常为 `caddy` 用户。
 
 ## 手动使用
