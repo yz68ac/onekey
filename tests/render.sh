@@ -164,4 +164,69 @@ if (user_add bob@example.com 00000000-0000-4000-8000-000000000001 >/dev/null 2>&
 fi
 printf '[PASS] duplicate UUID rejected\n'
 
+# --- generate_uuid keeps caller input -------------------------------------
+supplied="00000000-0000-4000-8000-0000000000aa"
+if [ "$(XRAY_BIN="$TEST_TMP/missing-xray" generate_uuid "$supplied")" != "$supplied" ]; then
+    printf '[FAIL] supplied UUID was replaced when Xray is missing\n' >&2
+    exit 1
+fi
+if (XRAY_BIN="$TEST_TMP/missing-xray" generate_uuid "some seed" >/dev/null 2>&1); then
+    printf '[FAIL] seed without Xray was silently replaced\n' >&2
+    exit 1
+fi
+printf '[PASS] generate_uuid never discards caller input\n'
+
+# --- menu_run survives a failing action ----------------------------------
+menu_failing_action() { die "expected failure"; }
+menu_run menu_failing_action 2>/dev/null
+printf '[PASS] menu_run returns to the menu after a failed action\n'
+
+# --- setup: re-apply keeps the values existing clients depend on ----------
+. "$TEST_ROOT/lib/target.sh"
+ask() { printf '%s\n' "${2:-}"; }
+setup_warn_port() { return 0; }
+check_domain_points_here() { return 0; }
+detect_public_ip() { printf '198.51.100.1\n'; }
+if [ "$(onekey_current_mode)" != "xhttp-reality-self" ]; then
+    printf '[FAIL] configured mode not detected: %s\n' "$(onekey_current_mode)" >&2
+    exit 1
+fi
+SETUP_REAPPLY=1
+setup_collect_plan xhttp-reality-self 2>/dev/null
+plan="$PLAN_DOMAIN|$PLAN_EMAIL|$PLAN_ADDRESS|$PLAN_PATH|$PLAN_PORT|$PLAN_FALLBACK"
+if [ "$plan" != "www.microsoft.com|admin@example.com|203.0.113.7|/test.path|443|8443" ]; then
+    printf '[FAIL] re-applying the same mode changed existing values: %s\n' "$plan" >&2
+    exit 1
+fi
+printf '[PASS] re-applying the same mode keeps domain, path and ports\n'
+
+SETUP_REAPPLY=0
+SETUP_TARGET="www.sony.jp:443"
+SETUP_SKIP_TARGET_CHECK=1
+setup_collect_plan xhttp-reality 2>/dev/null
+if [ "$PLAN_SNI" != "www.sony.jp" ] || [ "$PLAN_ADDRESS" != "198.51.100.1" ] || [ "$PLAN_PATH" = "/test.path" ]; then
+    printf '[FAIL] switching modes did not start from fresh values: %s|%s|%s\n' "$PLAN_SNI" "$PLAN_ADDRESS" "$PLAN_PATH" >&2
+    exit 1
+fi
+printf '[PASS] switching modes uses fresh values\n'
+SETUP_TARGET=""
+SETUP_SKIP_TARGET_CHECK=0
+
+# --- setup: an invalid mode is asked again instead of aborting ------------
+answers="$TEST_TMP/answers"
+printf '9\n4\n' > "$answers"
+ask() {
+    local first
+    first="$(head -n 1 "$answers")"
+    sed -i '1d' "$answers"
+    printf '%s\n' "$first"
+}
+setup_can_ask() { return 0; }
+picked="$(setup_choose_mode 1 2>/dev/null)"
+if [ "$picked" != "xhttp-reality" ]; then
+    printf '[FAIL] invalid mode was not re-asked: %s\n' "$picked" >&2
+    exit 1
+fi
+printf '[PASS] invalid mode input is asked again\n'
+
 printf 'Render tests passed\n'

@@ -14,6 +14,10 @@ wget -qO- https://raw.githubusercontent.com/yz68ac/onekey/main/install.sh | sudo
 
 The installer normally asks only which mode to use. Domain-based modes ask for one additional domain. Everything else is automatic: public IP detection, REALITY target selection and certificate/TLSv1.3/h2 validation, random path and UUID generation, and ACME email derivation.
 
+All questions come first. Setup then shows a summary of what it will do and asks for one confirmation before installing Xray or touching any configuration; answering `n` leaves the server unchanged. A typo in the mode or domain is simply asked again, and a domain whose DNS does not point at this server lets you fix the record and re-check instead of failing later at certificate issuance.
+
+Running setup again on a configured server offers to show the existing share link instead of reinstalling. Re-applying the same mode keeps the current domain, path, ports, and REALITY target, so existing client links keep working; with `-y` and no `--mode`, the current mode is re-applied rather than switched to the default.
+
 Fully unattended:
 
 ```bash
@@ -62,7 +66,8 @@ Missing dependencies (`curl`, `wget`, `jq`, `openssl`, `tar`, `gpg`, `logrotate`
 
 ## Features
 
-- `xrayctl.sh setup`: dependencies → Xray → mode → user → share link + QR code.
+- `xrayctl.sh setup`: dependencies → mode and settings → confirm → Xray → user → share link + QR code.
+- The interactive menu returns to itself when an action fails, opens the share link by default once the server is configured, and asks before deleting a user.
 - One management entry point; running `xrayctl.sh` without arguments opens the interactive menu.
 - XHTTP + Caddy: Caddy owns ports 80/443 and certificates; Xray listens on a local XHTTP port.
 - REALITY + Vision: Xray listens directly on 443; Caddy is stopped to avoid a port conflict.

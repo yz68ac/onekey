@@ -63,27 +63,94 @@ mode_needs_domain() {
     esac
 }
 
+mode_number() {
+    case "$1" in
+        reality) printf '1\n' ;;
+        reality-self) printf '2\n' ;;
+        xhttp) printf '3\n' ;;
+        xhttp-reality) printf '4\n' ;;
+        xhttp-reality-self) printf '5\n' ;;
+        *) printf '1\n' ;;
+    esac
+}
+
+# Mode this server is actually running, empty when setup never completed.
+# The default state file already says "xhttp", so a mode only counts once its
+# identity (domain or serverName) is filled in and a config was rendered.
+onekey_current_mode() {
+    local mode identity
+    [ -r "$STATE_FILE" ] && [ -s "$XRAY_CONFIG" ] || return 0
+    jq -e . "$STATE_FILE" >/dev/null 2>&1 || return 0
+    mode="$(jq -r '.mode // ""' "$STATE_FILE")"
+    case "$mode" in
+        xhttp) identity="$(jq -r '.domain // ""' "$STATE_FILE")" ;;
+        *) identity="$(jq -r '.reality.server_name // ""' "$STATE_FILE")" ;;
+    esac
+    [ -n "$identity" ] || return 0
+    normalize_mode "$mode" || true
+}
+
+# True when a prompt can actually reach a person. Anything else must fail
+# loudly instead of looping on a question nobody can answer.
+setup_can_ask() {
+    [ "$ONEKEY_ASSUME_YES" != "1" ] && { have_tty || [ -t 0 ]; }
+}
+
+setup_mode_row() {
+    local number="$1" name="$2" hint="$3" default="$4" color="$c_bold"
+    [ "$number" != "$default" ] || color="$c_bold$c_green"
+    printf '  %s%s)%s %-34s %s%s%s\n' "$color" "$number" "$c_reset" "$name" "$c_dim" "$hint" "$c_reset"
+}
+
+# setup_choose_mode [default-number] -> normalized mode
 setup_choose_mode() {
-    local choice raw
+    local default="${1:-1}" choice raw
     {
-        printf '\n%sChoose a mode%s\n\n' "$c_bold" "$c_reset"
-        printf '  %s1)%s REALITY + Vision                      %sno domain, no certificate%s\n' \
-            "$c_bold$c_green" "$c_reset" "$c_dim" "$c_reset"
-        printf '  %s2)%s REALITY self-steal + local Caddy      %sneeds a domain pointed here%s\n' \
-            "$c_bold" "$c_reset" "$c_dim" "$c_reset"
-        printf '  %s3)%s XHTTP + Caddy (TLS)                   %sneeds a domain pointed here%s\n' \
-            "$c_bold" "$c_reset" "$c_dim" "$c_reset"
-        printf '  %s4)%s XHTTP + REALITY                       %sno domain, no certificate%s\n' \
-            "$c_bold" "$c_reset" "$c_dim" "$c_reset"
-        printf '  %s5)%s XHTTP + REALITY self-steal            %sneeds a domain pointed here%s\n\n' \
-            "$c_bold" "$c_reset" "$c_dim" "$c_reset"
+        printf '\n%sChoose a mode%s\n' "$c_bold" "$c_reset"
+        printf '\n  %sNo domain needed%s\n' "$c_dim" "$c_reset"
+        setup_mode_row 1 "REALITY + Vision" "recommended: simplest and fastest" "$default"
+        setup_mode_row 4 "XHTTP + REALITY" "XHTTP transport instead of Vision" "$default"
+        printf '\n  %sNeeds a domain whose DNS record points at this server%s\n' "$c_dim" "$c_reset"
+        setup_mode_row 2 "REALITY self-steal + local Caddy" "camouflages as your own site" "$default"
+        setup_mode_row 3 "XHTTP + Caddy (TLS)" "real certificate, can sit behind a CDN" "$default"
+        setup_mode_row 5 "XHTTP + REALITY self-steal" "XHTTP, camouflaged as your own site" "$default"
+        printf '\n'
     } >&2
 
-    raw="$(ask "Mode" "1")"
-    if ! choice="$(normalize_mode "$raw")"; then
-        die "Unknown mode: $raw"
-    fi
-    printf '%s\n' "$choice"
+    while true; do
+        raw="$(ask "Mode" "$default")"
+        if choice="$(normalize_mode "$raw")"; then
+            printf '%s\n' "$choice"
+            return 0
+        fi
+        setup_can_ask || die "Unknown mode: $raw"
+        ui_bad "unknown mode '$raw'; enter a number from 1 to 5"
+    done
+}
+
+# What to do when setup runs on a server that is already configured.
+# Prints show | reconfigure | cancel.
+setup_existing_choice() {
+    local current="$1" users raw
+    users="$(jq '.users | length' "$USERS_FILE")"
+    {
+        printf '\n%sThis server is already set up:%s %s, %s user(s)\n\n' \
+            "$c_bold" "$c_reset" "$(mode_display_name "$current")" "$users"
+        printf '  %s1)%s Show the share link and status   %snothing is changed%s\n' \
+            "$c_bold$c_green" "$c_reset" "$c_dim" "$c_reset"
+        printf '  %s2)%s Reconfigure                      %susers and REALITY keys are kept%s\n' \
+            "$c_bold" "$c_reset" "$c_dim" "$c_reset"
+        printf '  %s0)%s Cancel\n\n' "$c_bold" "$c_reset"
+    } >&2
+    while true; do
+        raw="$(ask "Choose" "1")"
+        case "$raw" in
+            1) printf 'show\n'; return 0 ;;
+            2) printf 'reconfigure\n'; return 0 ;;
+            0 | q | quit) printf 'cancel\n'; return 0 ;;
+        esac
+        ui_bad "enter 1, 2 or 0"
+    done
 }
 
 derive_acme_email() {
@@ -94,9 +161,15 @@ derive_acme_email() {
 # Resolve the public address once and reuse it for both the share link and
 # the DNS sanity check.
 setup_resolve_address() {
-    local ip
+    local kept="${1:-}" ip
     if [ -n "$SETUP_ADDRESS" ]; then
+        validate_client_address "$SETUP_ADDRESS" || die "Invalid --address: $SETUP_ADDRESS"
         printf '%s\n' "$SETUP_ADDRESS"
+        return 0
+    fi
+    if [ -n "$kept" ]; then
+        ui_good "keeping share-link address: $kept"
+        printf '%s\n' "$kept"
         return 0
     fi
     ui_note "detecting public address..."
@@ -126,9 +199,15 @@ setup_prepare_target() {
 }
 
 setup_resolve_target() {
-    local target
+    local kept="${1:-}" target
     if [ -n "$SETUP_TARGET" ]; then
         setup_prepare_target "$SETUP_TARGET"
+        return 0
+    fi
+    # Re-running setup must not silently move existing clients to a new SNI.
+    if [ -n "$kept" ]; then
+        ui_good "keeping current REALITY target: $kept (pass --target to change it)"
+        printf '%s\n' "$kept"
         return 0
     fi
     ui_note "probing REALITY target candidates..."
@@ -180,25 +259,45 @@ setup_warn_port() {
     ui_bad "port $port is already in use${owner:+ by $owner}; $what may fail to bind"
 }
 
+# setup_collect_domain <address> [default]
+# Typed input is re-asked until it is a valid name; a DNS record that does not
+# point here gets a choice instead of a warning that scrolls away.
 setup_collect_domain() {
-    local address="$1" domain
-    if [ -n "$SETUP_DOMAIN" ]; then
-        domain="$SETUP_DOMAIN"
-    else
-        domain="$(ask_required "Domain pointed at this server" "" "Pass --domain explicitly.")"
-    fi
-    case "$domain" in
-        *@*) die "--domain must be a DNS name, not an email address" ;;
-    esac
-    validate_domain "$domain" || die "Invalid domain: $domain"
-    check_domain_points_here "$domain" "$address" || true
+    local address="$1" default="${2:-}" domain="$SETUP_DOMAIN" explicit="$SETUP_DOMAIN"
+    while true; do
+        if [ -z "$domain" ]; then
+            domain="$(ask_required "Domain pointed at this server" "$default" "Pass --domain explicitly.")"
+        fi
+        if [[ "$domain" == *@* ]] || ! validate_domain "$domain"; then
+            if [ -n "$explicit" ] || ! setup_can_ask; then
+                die "Invalid domain: $domain (expected a DNS name such as vpn.example.com)"
+            fi
+            ui_bad "'$domain' is not a domain name (example: vpn.example.com)"
+            domain=""
+            explicit=""
+            continue
+        fi
+        if check_domain_points_here "$domain" "$address" || ! setup_can_ask; then
+            break
+        fi
+        if confirm "Continue anyway? The certificate cannot be issued until DNS points here" "n"; then
+            break
+        fi
+        ui_note "fix the DNS record, then press Enter to check again (or type another domain)"
+        default="$domain"
+        domain=""
+        explicit=""
+    done
     printf '%s\n' "$domain"
 }
 
+# setup_email_for <domain> [kept-email]
 setup_email_for() {
-    local domain="$1" email
+    local domain="$1" kept="${2:-}" email
     if [ -n "$SETUP_EMAIL" ]; then
         email="$SETUP_EMAIL"
+    elif [ -n "$kept" ]; then
+        email="$kept"
     else
         email="$(derive_acme_email "$domain")"
         ui_note "ACME email: $email (override with --email)"
@@ -207,75 +306,184 @@ setup_email_for() {
     printf '%s\n' "$email"
 }
 
-setup_run_mode() {
-    local mode="$1" address domain email target target_host path port fallback
+# The plan is collected before anything slow or destructive runs, shown, and
+# confirmed; only then is Xray installed and the configuration written.
+SETUP_REAPPLY=0
+PLAN_MODE=""
+PLAN_ADDRESS=""
+PLAN_DOMAIN=""
+PLAN_EMAIL=""
+PLAN_TARGET=""
+PLAN_SNI=""
+PLAN_PATH=""
+PLAN_PORT=""
+PLAN_FALLBACK=""
+
+# setup_kept <jq-expr>: the current value when re-applying the same mode, so a
+# re-run keeps existing share links working. Empty otherwise.
+setup_kept() {
+    [ "$SETUP_REAPPLY" = "1" ] || return 0
+    state_get "($1) // \"\""
+}
+
+setup_plan_port() {
+    local value="$1" what="$2"
+    validate_port "$value" || die "Invalid $what: $value"
+    printf '%s\n' "$value"
+}
+
+setup_collect_plan() {
+    local mode="$1" kept_target kept_domain
+    PLAN_MODE="$mode"
+    PLAN_ADDRESS="" PLAN_DOMAIN="" PLAN_EMAIL="" PLAN_TARGET="" PLAN_SNI=""
+    PLAN_PATH="" PLAN_PORT="" PLAN_FALLBACK=""
 
     case "$mode" in
-        reality)
-            address="$(setup_resolve_address)"
-            target="$(setup_resolve_target)"
-            target_host="$(reality_target_host "$target")"
-            port="${SETUP_PORT:-443}"
-            validate_port "$port" || die "Invalid Xray listen port: $port"
-            setup_warn_port "$port" "Xray"
-            ui_step "Applying REALITY + Vision"
-            switch_reality_vision "${SETUP_SNI:-$target_host}" "$target" "$address" "$port"
-            ;;
-        xhttp-reality)
-            address="$(setup_resolve_address)"
-            target="$(setup_resolve_target)"
-            target_host="$(reality_target_host "$target")"
-            path="${SETUP_PATH:-$(generate_path)}"
-            port="${SETUP_PORT:-443}"
-            validate_port "$port" || die "Invalid Xray listen port: $port"
-            setup_warn_port "$port" "Xray"
-            ui_step "Applying XHTTP + REALITY"
-            switch_xhttp_reality "${SETUP_SNI:-$target_host}" "$target" "$address" "$path" "$port"
+        reality | xhttp-reality)
+            PLAN_ADDRESS="$(setup_resolve_address "$(setup_kept '.reality.address // .address')")"
+            kept_target="$(setup_kept '.reality.target')"
+            PLAN_TARGET="$(setup_resolve_target "$kept_target")"
+            if [ -n "$SETUP_SNI" ]; then
+                PLAN_SNI="$SETUP_SNI"
+            elif [ -n "$kept_target" ] && [ "$PLAN_TARGET" = "$kept_target" ]; then
+                PLAN_SNI="$(setup_kept '.reality.server_name')"
+            fi
+            PLAN_SNI="${PLAN_SNI:-$(reality_target_host "$PLAN_TARGET")}"
+            validate_domain "$PLAN_SNI" || die "Invalid serverName: $PLAN_SNI"
+            PLAN_PORT="${SETUP_PORT:-$(setup_kept '.reality.listen_port')}"
+            PLAN_PORT="$(setup_plan_port "${PLAN_PORT:-443}" "Xray listen port")"
+            setup_warn_port "$PLAN_PORT" "Xray"
             ;;
         xhttp)
-            address="$(setup_resolve_address)"
-            domain="$(setup_collect_domain "$address")"
-            email="$(setup_email_for "$domain")"
-            path="${SETUP_PATH:-$(generate_path)}"
-            port="${SETUP_PORT:-10000}"
-            validate_port "$port" || die "Invalid local XHTTP port: $port"
-            setup_warn_port "$port" "Xray"
+            PLAN_ADDRESS="$(setup_resolve_address)"
+            PLAN_PORT="${SETUP_PORT:-$(setup_kept '.xhttp.port')}"
+            PLAN_PORT="$(setup_plan_port "${PLAN_PORT:-10000}" "local XHTTP port")"
+            setup_warn_port "$PLAN_PORT" "Xray"
             setup_warn_port 80 "Caddy"
             setup_warn_port 443 "Caddy"
-            ui_step "Applying XHTTP + Caddy"
-            switch_xhttp "$domain" "$email" "$path" "$port"
             ;;
-        reality-self)
-            address="$(setup_resolve_address)"
-            domain="$(setup_collect_domain "$address")"
-            email="$(setup_email_for "$domain")"
-            port="${SETUP_PORT:-443}"
-            fallback="${SETUP_FALLBACK_PORT:-8443}"
-            validate_port "$port" || die "Invalid Xray listen port: $port"
-            validate_port "$fallback" || die "Invalid local Caddy fallback port: $fallback"
-            setup_warn_port "$port" "Xray"
-            setup_warn_port "$fallback" "Caddy"
+        reality-self | xhttp-reality-self)
+            PLAN_ADDRESS="$(setup_resolve_address "$(setup_kept '.reality.address // .address')")"
+            PLAN_PORT="${SETUP_PORT:-$(setup_kept '.reality.listen_port')}"
+            PLAN_PORT="$(setup_plan_port "${PLAN_PORT:-443}" "Xray listen port")"
+            PLAN_FALLBACK="${SETUP_FALLBACK_PORT:-$(setup_kept '.reality_self.port')}"
+            PLAN_FALLBACK="$(setup_plan_port "${PLAN_FALLBACK:-8443}" "local Caddy fallback port")"
+            [ "$PLAN_PORT" != "$PLAN_FALLBACK" ] ||
+                die "Xray listen port and local Caddy fallback port must be different"
+            setup_warn_port "$PLAN_PORT" "Xray"
+            setup_warn_port "$PLAN_FALLBACK" "Caddy"
             setup_warn_port 80 "Caddy"
-            ui_step "Applying REALITY self-steal + local Caddy"
-            switch_reality_self "$domain" "$email" "$address" "$port" "$fallback"
-            ;;
-        xhttp-reality-self)
-            address="$(setup_resolve_address)"
-            domain="$(setup_collect_domain "$address")"
-            email="$(setup_email_for "$domain")"
-            path="${SETUP_PATH:-$(generate_path)}"
-            port="${SETUP_PORT:-443}"
-            fallback="${SETUP_FALLBACK_PORT:-8443}"
-            validate_port "$port" || die "Invalid Xray listen port: $port"
-            validate_port "$fallback" || die "Invalid local Caddy fallback port: $fallback"
-            setup_warn_port "$port" "Xray"
-            setup_warn_port "$fallback" "Caddy"
-            setup_warn_port 80 "Caddy"
-            ui_step "Applying XHTTP + REALITY self-steal + local Caddy"
-            switch_xhttp_reality_self "$domain" "$email" "$address" "$path" "$port" "$fallback"
             ;;
         *)
             die "Unsupported setup mode: $mode"
+            ;;
+    esac
+
+    if mode_needs_domain "$mode"; then
+        case "$mode" in
+            xhttp) kept_domain="$(setup_kept '.domain')" ;;
+            *) kept_domain="$(setup_kept '.reality.server_name // .domain')" ;;
+        esac
+        PLAN_DOMAIN="$(setup_collect_domain "$PLAN_ADDRESS" "$kept_domain")"
+        if [ -n "$kept_domain" ] && [ "$PLAN_DOMAIN" = "$kept_domain" ]; then
+            PLAN_EMAIL="$(setup_email_for "$PLAN_DOMAIN" "$(setup_kept '.acme_email')")"
+        else
+            PLAN_EMAIL="$(setup_email_for "$PLAN_DOMAIN")"
+        fi
+    fi
+
+    case "$mode" in
+        xhttp | xhttp-reality | xhttp-reality-self)
+            PLAN_PATH="${SETUP_PATH:-$(setup_kept '.xhttp.path')}"
+            PLAN_PATH="$(normalize_path "${PLAN_PATH:-$(generate_path)}")"
+            ;;
+    esac
+}
+
+setup_user_summary() {
+    local count first
+    count="$(jq '.users | length' "$USERS_FILE")"
+    if [ -n "$SETUP_USER" ]; then
+        if jq -e --arg email "$SETUP_USER" '.users[]? | select(.email == $email)' "$USERS_FILE" >/dev/null; then
+            printf '%s (existing)\n' "$SETUP_USER"
+        else
+            printf '%s (new, random UUID)\n' "$SETUP_USER"
+        fi
+    elif [ "$count" -gt 0 ]; then
+        first="$(jq -r '.users[0].email' "$USERS_FILE")"
+        printf '%s (existing, %s user(s) kept)\n' "$first" "$count"
+    else
+        printf '%s (new, random UUID)\n' "$SETUP_DEFAULT_USER"
+    fi
+}
+
+setup_show_plan() {
+    printf '\n'
+    ui_panel_top
+    if [ "$SETUP_REAPPLY" = "1" ]; then
+        ui_title "Ready to re-apply"
+    else
+        ui_title "Ready to set up"
+    fi
+    ui_panel_sep
+    ui_row "Mode" "$(mode_display_name "$PLAN_MODE")"
+    case "$PLAN_MODE" in
+        reality | xhttp-reality)
+            ui_row "Address" "$(format_host "$PLAN_ADDRESS"):$PLAN_PORT"
+            ui_row "SNI" "$PLAN_SNI"
+            ui_row "Target" "$PLAN_TARGET"
+            ;;
+        xhttp)
+            ui_row "Address" "$PLAN_DOMAIN:443 (Caddy)"
+            ui_row "Xray local" "127.0.0.1:$PLAN_PORT"
+            ;;
+        *)
+            ui_row "Address" "$(format_host "$PLAN_ADDRESS"):$PLAN_PORT"
+            ui_row "SNI" "$PLAN_DOMAIN"
+            ui_row "Target" "local Caddy 127.0.0.1:$PLAN_FALLBACK"
+            ;;
+    esac
+    if [ -n "$PLAN_PATH" ]; then
+        ui_row "Path" "$PLAN_PATH"
+    fi
+    if [ -n "$PLAN_EMAIL" ]; then
+        ui_row "ACME email" "$PLAN_EMAIL"
+    fi
+    ui_row "User" "$(setup_user_summary)"
+    ui_panel_sep
+    ui_row_plain "Next: install or update Xray, write the config, restart"
+    case "$PLAN_MODE" in
+        reality | xhttp-reality)
+            ui_row_plain "Caddy is stopped if running: Xray takes port $PLAN_PORT"
+            ;;
+        *)
+            ui_row_plain "Caddy is configured and requests a certificate for $PLAN_DOMAIN"
+            ;;
+    esac
+    ui_row_plain "Any failure rolls back to the previous configuration"
+    ui_panel_bottom
+}
+
+setup_apply_plan() {
+    ui_step "Applying $(mode_display_name "$PLAN_MODE")"
+    case "$PLAN_MODE" in
+        reality)
+            switch_reality_vision "$PLAN_SNI" "$PLAN_TARGET" "$PLAN_ADDRESS" "$PLAN_PORT"
+            ;;
+        xhttp-reality)
+            switch_xhttp_reality "$PLAN_SNI" "$PLAN_TARGET" "$PLAN_ADDRESS" "$PLAN_PATH" "$PLAN_PORT"
+            ;;
+        xhttp)
+            switch_xhttp "$PLAN_DOMAIN" "$PLAN_EMAIL" "$PLAN_PATH" "$PLAN_PORT"
+            ;;
+        reality-self)
+            switch_reality_self "$PLAN_DOMAIN" "$PLAN_EMAIL" "$PLAN_ADDRESS" "$PLAN_PORT" "$PLAN_FALLBACK"
+            ;;
+        xhttp-reality-self)
+            switch_xhttp_reality_self "$PLAN_DOMAIN" "$PLAN_EMAIL" "$PLAN_ADDRESS" "$PLAN_PATH" "$PLAN_PORT" "$PLAN_FALLBACK"
+            ;;
+        *)
+            die "Unsupported setup mode: $PLAN_MODE"
             ;;
     esac
 }
@@ -438,28 +646,60 @@ onekey_setup() {
     ui_banner
     ui_step "Checking dependencies"
     ensure_base_deps
+    init_state_files
+
+    local current mode existing_user
+    current="$(onekey_current_mode)"
+    existing_user="$(jq -r '.users[0].email // ""' "$USERS_FILE")"
+
+    if [ -n "$SETUP_MODE" ]; then
+        mode="$(normalize_mode "$SETUP_MODE")" || die "Unknown mode: $SETUP_MODE"
+    elif [ -n "$current" ] && [ "$ONEKEY_ASSUME_YES" = "1" ]; then
+        # Unattended re-runs keep the running mode instead of silently
+        # switching an existing server to the first-install default.
+        mode="$current"
+        ui_note "already set up; re-applying $(mode_display_name "$current") (pass --mode to switch)"
+    elif [ "$ONEKEY_ASSUME_YES" = "1" ]; then
+        mode="reality"
+        ui_note "no --mode given, defaulting to REALITY + Vision"
+    elif [ -n "$current" ] && [ -n "$existing_user" ]; then
+        case "$(setup_existing_choice "$current")" in
+            show)
+                onekey_status_panel "$existing_user"
+                ui_link_block "$(build_link "$existing_user")"
+                return 0
+                ;;
+            cancel)
+                ui_note "cancelled; nothing was changed"
+                return 0
+                ;;
+        esac
+        mode="$(setup_choose_mode "$(mode_number "$current")")"
+    else
+        mode="$(setup_choose_mode 1)"
+    fi
+    if [ -n "$current" ] && [ "$mode" = "$current" ]; then
+        SETUP_REAPPLY=1
+    fi
+
+    ui_step "Preparing $(mode_display_name "$mode")"
+    setup_collect_plan "$mode"
+    setup_show_plan
+    if ! confirm "Apply this configuration?" "y"; then
+        ui_note "cancelled; no configuration was changed"
+        return 0
+    fi
 
     ui_step "Installing Xray"
     install_xray_if_needed
     install_cli_shortcut
-    init_state_files
     transaction_begin
-
-    local mode
-    if [ -n "$SETUP_MODE" ]; then
-        mode="$(normalize_mode "$SETUP_MODE")" || die "Unknown mode: $SETUP_MODE"
-    elif [ "$ONEKEY_ASSUME_YES" = "1" ]; then
-        mode="reality"
-        ui_note "no --mode given, defaulting to REALITY + Vision"
-    else
-        mode="$(setup_choose_mode)"
-    fi
 
     local user_email
     ui_step "Preparing user"
     user_email="$(setup_ensure_user)"
 
-    setup_run_mode "$mode"
+    setup_apply_plan
     transaction_commit
 
     onekey_status_panel "$user_email"

@@ -17,14 +17,18 @@ generate_path() {
 
 generate_uuid() {
     local input="${1:-}"
-    if have_cmd "$XRAY_BIN"; then
-        if [ -z "$input" ]; then
-            "$XRAY_BIN" uuid
-        elif validate_uuid "$input"; then
+    # A caller-supplied UUID or seed must never be swapped for a random one:
+    # clients configured with it would silently stop matching.
+    if [ -n "$input" ]; then
+        if validate_uuid "$input"; then
             printf '%s\n' "$input"
-        else
+        elif have_cmd "$XRAY_BIN"; then
             "$XRAY_BIN" uuid -i "$input"
+        else
+            die "Cannot derive a UUID from a seed without Xray; install Xray first or pass a full UUID"
         fi
+    elif have_cmd "$XRAY_BIN"; then
+        "$XRAY_BIN" uuid
     elif [ -r /proc/sys/kernel/random/uuid ]; then
         cat /proc/sys/kernel/random/uuid
     else

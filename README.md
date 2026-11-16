@@ -14,6 +14,10 @@ wget -qO- https://raw.githubusercontent.com/yz68ac/onekey/main/install.sh | sudo
 
 跑完只会问一个问题（选哪种模式），域名类模式再多问一个域名，其余全部自动：公网 IP 自动探测、REALITY target 自动挑选并验证证书、TLSv1.3 与 h2，路径和 UUID 自动生成，ACME 邮箱按域名推导。
 
+所有问题集中在最前面。问完后会先显示一份将要执行的配置摘要，确认一次才开始安装 Xray、写入配置；回答 `n` 则服务器保持原样。模式或域名输错会直接重新询问；域名解析没有指向本机时，可以先去改 DNS 再回车重新检测，而不是等到签证书时才失败。
+
+在已配置的服务器上再次运行 setup，会优先提供“查看现有分享链接”，不会直接重装。重新应用同一模式会保留当前域名、路径、端口和 REALITY target，已有客户端链接继续可用；使用 `-y` 且未指定 `--mode` 时，会重新应用当前模式，而不是切换到默认模式。
+
 完全无人值守（一句话都不问）：
 
 ```bash
@@ -61,7 +65,8 @@ sudo xrayctl bbr status               # 查看 BBR 状态
 依赖（`curl` `wget` `jq` `openssl` `tar` `gpg` `logrotate` `timeout`，以及可选的 `qrencode`）缺什么装什么；依赖层支持 apt / dnf / yum / apk / pacman，完整服务支持范围见上方说明。`qrencode` 装不上只会少一个二维码，不影响主流程。
 
 ## 功能
-- `xrayctl.sh setup` 一键直达：依赖 → Xray → 模式 → 用户 → 链接 + 二维码。
+- `xrayctl.sh setup` 一键直达：依赖 → 模式与参数 → 确认 → Xray → 用户 → 链接 + 二维码。
+- 交互菜单中某项操作失败会回到菜单而不是直接退出；服务器已配置时回车默认显示分享链接；删除用户前会二次确认。
 - `xrayctl.sh` 统一管理入口，无参数进入交互菜单。
 - 支持 XHTTP + Caddy：Caddy 管理 80/443 和证书，Xray 监听本地 XHTTP 端口。
 - 支持 REALITY + Vision：Xray 直接监听 443，Caddy 会被停止以避免端口冲突。

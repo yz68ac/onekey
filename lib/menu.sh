@@ -141,20 +141,64 @@ menu_reconfigure_current() {
     esac
 }
 
+menu_user_exists() {
+    jq -e --arg email "$1" '.users[]? | select(.email == $email)' "$USERS_FILE" >/dev/null
+}
+
 menu_user_add() {
     require_root
-    local email uuid
-    email="$(ask "User email" "user$(random_hex 2)@onekey.local")"
-    uuid="$(ask "UUID or custom seed, leave empty to auto-generate")"
+    init_state_files
+    local email uuid suggested
+    suggested="user$(random_hex 2)@onekey.local"
+    while true; do
+        email="$(ask "User email (only a label, nothing is sent)" "$suggested")"
+        if ! validate_email "$email"; then
+            ui_bad "'$email' is not an email-style label (example: alice@onekey.local)"
+        elif menu_user_exists "$email"; then
+            ui_bad "$email already exists; pick another label"
+        else
+            break
+        fi
+    done
+
+    uuid="$(ask "UUID, leave empty for a random one (recommended)")"
+    # Anything that is not a UUID becomes a deterministic seed: whoever
+    # guesses the text can derive the credential, so make that explicit.
+    if [ -n "$uuid" ] && ! validate_uuid "$uuid"; then
+        ui_bad "'$uuid' is not a UUID, so it would be used as a seed"
+        ui_bad "anyone who guesses that text can derive this user's credential"
+        if ! confirm "Use it as a seed anyway?" "n"; then
+            uuid=""
+            ui_note "using a random UUID instead"
+        fi
+    fi
     user_add_and_apply "$email" "$uuid"
     link_show "$email"
 }
 
 menu_user_del() {
     require_root
+    init_state_files
     local email
+    if [ "$(jq '.users | length' "$USERS_FILE")" -eq 0 ]; then
+        printf 'No users configured.\n'
+        return 0
+    fi
     user_list
-    email="$(ask "User email to delete")"
+    printf '\n'
+    while true; do
+        email="$(ask "User email to delete, empty to cancel")"
+        if [ -z "$email" ]; then
+            ui_note "cancelled"
+            return 0
+        fi
+        menu_user_exists "$email" && break
+        ui_bad "no user named $email"
+    done
+    if ! confirm "Delete $email? Their share link stops working immediately" "n"; then
+        ui_note "cancelled"
+        return 0
+    fi
     user_delete_and_apply "$email"
 }
 
@@ -166,6 +210,11 @@ menu_traffic() {
 
 menu_link() {
     local email
+    email="$(single_user_email)"
+    if [ -n "$email" ]; then
+        link_show "$email"
+        return 0
+    fi
     user_list
     email="$(ask "User email, empty for all" "")"
     if [ -z "$email" ]; then
@@ -176,20 +225,39 @@ menu_link() {
 }
 
 menu_header() {
-    local mode="" detail=""
+    local mode="$1" detail=""
     printf '\n%s%s  ONEKEY XRAY + CADDY%s\n' "$c_bold" "$c_cyan" "$c_reset"
     printf '%s  %s%s\n' "$c_dim" "$(ui_repeat '-' 46)" "$c_reset"
-    if [ -r "$STATE_FILE" ] && jq -e . "$STATE_FILE" >/dev/null 2>&1; then
-        mode="$(jq -r '.mode // ""' "$STATE_FILE")"
-        case "$mode" in
-            reality|reality-vision|vision|vison|reality-self|xhttp-reality|xhttp-reality-self)
-                detail=" | SNI: $(jq -r '.reality.server_name // ""' "$STATE_FILE")"
-                ;;
-        esac
-        printf '  %sCurrent: %s%s%s\n\n' "$c_dim" "$(mode_display_name "$mode")" "$detail" "$c_reset"
-    else
-        printf '\n'
+    if [ -z "$mode" ]; then
+        printf '  %sNot set up yet: press Enter to start the one-key setup%s\n\n' "$c_yellow" "$c_reset"
+        return 0
     fi
+    case "$mode" in
+        xhttp) detail=" | Domain: $(jq -r '.domain // ""' "$STATE_FILE")" ;;
+        *) detail=" | SNI: $(jq -r '.reality.server_name // ""' "$STATE_FILE")" ;;
+    esac
+    printf '  %sCurrent: %s%s, %s user(s)%s\n' "$c_dim" "$(mode_display_name "$mode")" "$detail" \
+        "$(jq '.users | length' "$USERS_FILE" 2>/dev/null || printf '?')" "$c_reset"
+    printf '  %sPress Enter for the share link; 1 re-runs setup%s\n\n' "$c_dim" "$c_reset"
+}
+
+# Run one menu action in a subshell so a failed validation (die) or a rolled
+# back transaction returns to the menu instead of closing it. errexit is
+# switched off in the parent only, so it still applies inside the action.
+menu_run() {
+    local rc
+    set +e
+    (
+        set -e
+        "$@"
+    )
+    rc=$?
+    set -e
+    if [ "$rc" -ne 0 ]; then
+        printf '\n'
+        ui_bad "that action did not complete (exit $rc); see the message above"
+    fi
+    return 0
 }
 
 menu_body() {
@@ -220,44 +288,54 @@ menu_body() {
 EOF
 }
 
+menu_caddy_apply() {
+    require_root
+    caddy_apply_from_state
+}
+
 interactive_menu() {
-    local choice
+    local choice current default
     while true; do
         clear 2>/dev/null || true
-        menu_header
+        current="$(onekey_current_mode 2>/dev/null || true)"
+        # Enter on a fresh server starts setup; on a configured one it shows
+        # the share link instead of re-running the whole installation.
+        if [ -n "$current" ]; then
+            default="12"
+        else
+            default="1"
+        fi
+        menu_header "$current"
         menu_body
         printf '\n'
-        choice="$(ask "Choose" "1")"
+        choice="$(ask "Choose" "$default")"
         printf '\n'
         case "$choice" in
-            1) menu_one_key ;;
-            2) menu_install ;;
-            r | R | reconfigure | edit) menu_reconfigure_current ;;
-            3) menu_switch_reality ;;
-            4) menu_switch_reality_self ;;
-            5) menu_switch_xhttp ;;
-            6) menu_switch_xhttp_reality ;;
-            7) menu_switch_xhttp_reality_self ;;
-            8) menu_user_add ;;
-            9) menu_user_del ;;
-            10) user_list ;;
-            11) menu_traffic ;;
-            12) menu_link ;;
-            13) service_command start ;;
-            14) service_command stop ;;
-            15) service_command restart ;;
-            16) service_command status ;;
-            17) service_command logs ;;
-            18) service_command test ;;
-            19)
-                require_root
-                caddy_apply_from_state
-                ;;
-            20) bbr_status ;;
-            21) bbr_enable ;;
-            22) bbr_disable ;;
+            1) menu_run menu_one_key ;;
+            2) menu_run menu_install ;;
+            r | R | reconfigure | edit) menu_run menu_reconfigure_current ;;
+            3) menu_run menu_switch_reality ;;
+            4) menu_run menu_switch_reality_self ;;
+            5) menu_run menu_switch_xhttp ;;
+            6) menu_run menu_switch_xhttp_reality ;;
+            7) menu_run menu_switch_xhttp_reality_self ;;
+            8) menu_run menu_user_add ;;
+            9) menu_run menu_user_del ;;
+            10) menu_run user_list ;;
+            11) menu_run menu_traffic ;;
+            12) menu_run menu_link ;;
+            13) menu_run service_command start ;;
+            14) menu_run service_command stop ;;
+            15) menu_run service_command restart ;;
+            16) menu_run service_command status ;;
+            17) menu_run service_command logs ;;
+            18) menu_run service_command test ;;
+            19) menu_run menu_caddy_apply ;;
+            20) menu_run bbr_status ;;
+            21) menu_run bbr_enable ;;
+            22) menu_run bbr_disable ;;
             0 | q | quit | exit) exit 0 ;;
-            *) warn "Unknown choice: $choice" ;;
+            *) ui_bad "unknown choice: $choice" ;;
         esac
         pause_menu
     done
