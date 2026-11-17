@@ -43,7 +43,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: One-key setup (${{ matrix.mode }})
-        run: sudo ./xrayctl.sh setup --mode "${{ matrix.mode }}" -y
+        # Shared runners sometimes get HTTP 403 from the GitHub API when the
+        # official installer fetches the release list. Setup is idempotent
+        # with --mode, so retry a couple of times before calling it broken.
+        run: |
+          for attempt in 1 2 3; do
+            sudo ./xrayctl.sh setup --mode "${{ matrix.mode }}" -y && exit 0
+            [ "$attempt" -lt 3 ] || break
+            echo "::warning::setup attempt $attempt failed; retrying in $((attempt * 30))s"
+            sleep $((attempt * 30))
+          done
+          exit 1
       - name: Doctor
         run: sudo ./xrayctl.sh doctor --offline
       - name: Share link
