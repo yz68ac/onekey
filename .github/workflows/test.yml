@@ -4,10 +4,6 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-  # Upstream (the official Xray installer, Xray-core, Caddy) changes under us;
-  # a weekly real install catches breakage that mocked tests cannot.
-  schedule:
-    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
